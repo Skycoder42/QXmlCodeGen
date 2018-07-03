@@ -1,22 +1,27 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
 		   xmlns:qxg="https://skycoder42.de/QXmlCodeGen">
-	<qxg:config>
-
+	<qxg:config class="TestClass"
+				prefix="Q_TEST_EXPORT"
+				ns="TestNamespace"
+				visibility="protected"
+				stdcompat="true">
+		<qxg:include>QtCore/QDateTime</qxg:include>
+		<qxg:include local="true">mytype.h</qxg:include>
 	</qxg:config>
 
 	<!-- Type definitions -->
-	<xs:complexType name="Include">
+	<xs:complexType name="Include" qxg:class="Include">
 		<xs:simpleContent>
-			<xs:extension base="xs:string">
-				<xs:attribute default="false" name="local" type="xs:boolean" use="optional"/>
+			<xs:extension base="xs:string" qxg:member="include">
+				<xs:attribute default="false" name="local" type="xs:boolean" use="optional" qxg:type="bool"/>
 			</xs:extension>
 		</xs:simpleContent>
 	</xs:complexType>
 
 	<xs:complexType name="Import">
 		<xs:simpleContent>
-			<xs:extension base="xs:string">
+			<xs:extension base="xs:string" qxg:type="QUuid">
 				<xs:attribute default="true" name="required" type="xs:boolean" use="optional"/>
 				<xs:attribute name="rootNode" type="xs:string" use="optional"/>
 			</xs:extension>
@@ -42,7 +47,7 @@
 		<xs:sequence>
 			<xs:element maxOccurs="unbounded" minOccurs="0" name="Param" type="Param"/>
 		</xs:sequence>
-		<xs:attribute name="class" type="xs:string" use="required"/>
+		<xs:attribute name="class" type="xs:string" use="required" qxg:member="className"/>
 	</xs:complexType>
 
 	<xs:complexType name="Node">
@@ -64,7 +69,7 @@
 				</xs:sequence>
 				<xs:attribute name="type" type="xs:string" use="required"/>
 				<xs:attribute name="qmlGroupKey" type="xs:string" use="optional"/>
-				<xs:attribute name="default" type="xs:string" use="optional"/>
+				<xs:attribute name="default" type="xs:string" use="optional"  qxg:member="defaultValue"/>
 				<xs:attribute default="false" name="tr" type="xs:boolean" use="optional"/>
 				<xs:attribute name="trContext" type="xs:string" use="optional"/>
 			</xs:extension>
