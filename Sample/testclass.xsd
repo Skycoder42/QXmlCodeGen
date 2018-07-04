@@ -10,88 +10,181 @@
 		<qxg:include local="true">mytype.h</qxg:include>
 	</qxg:config>
 
-	<!-- Type definitions -->
-	<xs:complexType name="Include" qxg:class="Include">
+
+
+	<!-- A basic simple type -->
+	<xs:complexType name="SimpleType">
 		<xs:simpleContent>
-			<xs:extension base="xs:string" qxg:member="include">
-				<xs:attribute default="false" name="local" type="xs:boolean" use="optional" qxg:type="bool"/>
+			<xs:extension base="xs:int">
+				<!-- All basic attribute variations -->
+				<xs:attribute name="faction" type="xs:decimal" use="optional" default="0.5"/>
+				<xs:attribute name="unit" type="xs:string" use="required"/>
+				<xs:attribute name="id" type="xs:string" qxg:type="QUuid"/>
+				<xs:attribute name="default" type="xs:int" qxg:member="defaultValue"/>
 			</xs:extension>
 		</xs:simpleContent>
 	</xs:complexType>
 
-	<xs:complexType name="Import">
+	<!-- Simple type with cpp member name and type -->
+	<xs:complexType name="AnotherSimpleType">
 		<xs:simpleContent>
-			<xs:extension base="xs:string" qxg:type="QUuid">
-				<xs:attribute default="true" name="required" type="xs:boolean" use="optional"/>
-				<xs:attribute name="rootNode" type="xs:string" use="optional"/>
-			</xs:extension>
+			<xs:extension base="xs:int" qxg:type="int" qxg:member="value"/>
 		</xs:simpleContent>
 	</xs:complexType>
 
-	<xs:complexType name="TypeMapping">
-		<xs:attribute name="key" type="xs:string" use="required"/>
-		<xs:attribute name="type" type="xs:string" use="required"/>
-	</xs:complexType>
 
-	<xs:complexType name="Param">
-		<xs:simpleContent>
-			<xs:extension base="xs:string">
-				<xs:attribute name="key" type="xs:string" use="required"/>
-				<xs:attribute name="type" type="xs:string" use="required"/>
-				<xs:attribute default="false" name="asStr" type="xs:boolean" use="optional"/>
-			</xs:extension>
-		</xs:simpleContent>
-	</xs:complexType>
 
-	<xs:complexType name="Backend">
+	<!-- A normal attribute group -->
+	<xs:attributeGroup name="AttrGroup1">
+		<xs:attribute name="value1" type="xs:string"/>
+		<xs:attribute name="value2" type="xs:dateTime"/>
+	</xs:attributeGroup>
+
+	<!-- A attribute group with another group, inherited -->
+	<xs:attributeGroup name="AttrGroup2">
+		<xs:attributeGroup ref="AttrGroup1" qxg:inherit="true"/>
+		<xs:attribute name="value3" type="xs:boolean"/>
+	</xs:attributeGroup>
+
+	<!-- A attribute group with another group, composite -->
+	<xs:attributeGroup name="AttrGroup3">
+		<xs:attributeGroup ref="AttrGroup2" qxg:member="baseGrp"/>
+	</xs:attributeGroup>
+
+
+	<!-- Basic sequenced group, with all element variations -->
+	<xs:group name="Group1">
 		<xs:sequence>
-			<xs:element maxOccurs="unbounded" minOccurs="0" name="Param" type="Param"/>
+			<xs:element type="SimpleType" name="type1"/>
+			<xs:element minOccurs="3" maxOccurs="10" type="AnotherSimpleType" name="type2"/>
+			<xs:element type="SimpleType" name="type3" minOccurs="0" maxOccurs="1"/>
+			<xs:element type="AnotherSimpleType" name="type4" qxg:member="masterType"/>
 		</xs:sequence>
-		<xs:attribute name="class" type="xs:string" use="required" qxg:member="className"/>
-	</xs:complexType>
+	</xs:group>
 
-	<xs:complexType name="Node">
+	<!-- Basic choice group -->
+	<xs:group name="Group2">
+		<xs:choice qxg:member="choice1">
+			<xs:element type="SimpleType" name="type1"/>
+			<xs:element type="AnotherSimpleType" name="type2"/>
+		</xs:choice>
+	</xs:group>
+
+	<!-- Basic all group -->
+	<xs:group name="Group3">
+		<xs:all>
+			<xs:element type="SimpleType" name="type1"/>
+			<xs:element type="AnotherSimpleType" name="type2" minOccurs="0"/>
+		</xs:all>
+	</xs:group>
+
+	<!-- Group made out of groups (inherit and compose) -->
+	<xs:group name="Group4">
 		<xs:sequence>
-			<xs:choice maxOccurs="unbounded" minOccurs="0" qxg:unordered="true">
-				<xs:element name="Node" type="Node"/>
-				<xs:element name="Entry" type="Entry"/>
-				<xs:element name="Import" type="Import"/>
+			<xs:group ref="Group1" qxg:inherit="true"/>
+			<xs:group ref="Group2" qxg:member="group2" minOccurs="0"/>
+			<xs:group ref="Group3" qxg:member="group3" maxOccurs="unbounded" minOccurs="0"/>
+		</xs:sequence>
+	</xs:group>
+
+	<!-- Group of unordered choice -->
+	<xs:group name="Group5">
+		<xs:sequence>
+			<xs:choice minOccurs="0" maxOccurs="unbounded" qxg:unordered="true">
+				<xs:group ref="Group1" qxg:member="group1"/>
+				<xs:group ref="Group2" qxg:member="group2"/>
+				<xs:group ref="Group3" qxg:member="group3"/>
 			</xs:choice>
 		</xs:sequence>
-		<xs:attribute name="key" type="xs:string" use="required"/>
+	</xs:group>
+
+
+
+	<!-- Basic complex type -->
+	<xs:complexType name="Type1">
+		<xs:sequence>
+			<xs:element type="SimpleType" name="content" maxOccurs="unbounded" minOccurs="5"/>
+		</xs:sequence>
+		<xs:attribute name="mem1" type="xs:string"/>
+		<xs:attribute name="mem2" type="xs:integer"/>
 	</xs:complexType>
 
-	<xs:complexType name="Entry">
+	<!-- Basic complex type with groups -->
+	<xs:complexType name="Type2">
+		<xs:group ref="Group4" qxg:inherit="true"/>
+		<xs:attributeGroup ref="AttrGroup3" qxg:member="attribs"/>
+		<xs:attributeGroup ref="AttrGroup1" qxg:inherit="true"/>
+	</xs:complexType>
+
+	<!-- Basic complex type with real content -->
+	<xs:complexType name="Type3">
+		<xs:sequence>
+			<xs:element type="Type1" name="type1" qxg:inherit="true"/>
+			<xs:element type="Type2" name="type2"/>
+			<xs:choice qxg:member="type3" minOccurs="3" maxOccurs="5">
+				<xs:element type="Type1" name="typeA"/>
+				<xs:element type="Type2" name="typeB"/>
+			</xs:choice>
+			<xs:group ref="Group5" qxg:inherit="true"/>
+		</xs:sequence>
+	</xs:complexType>
+
+
+
+	<!-- Complex type with inheritance -->
+	<xs:complexType name="Type4">
 		<xs:complexContent>
-			<xs:extension base="Node">
+			<xs:extension base="Type1">
 				<xs:sequence>
-					<xs:element maxOccurs="1" minOccurs="0" name="Code" type="xs:string"/>
+					<xs:element type="Type1" name="type1"/>
+					<xs:element type="Type2" name="type2"/>
 				</xs:sequence>
-				<xs:attribute name="type" type="xs:string" use="required"/>
-				<xs:attribute name="qmlGroupKey" type="xs:string" use="optional"/>
-				<xs:attribute name="default" type="xs:string" use="optional"  qxg:member="defaultValue"/>
-				<xs:attribute default="false" name="tr" type="xs:boolean" use="optional"/>
-				<xs:attribute name="trContext" type="xs:string" use="optional"/>
+				<xs:attributeGroup ref="AttrGroup2" qxg:member="extra"/>
 			</xs:extension>
 		</xs:complexContent>
 	</xs:complexType>
 
-	<xs:complexType name="Settings">
-		<xs:sequence>
-			<xs:element maxOccurs="unbounded" minOccurs="0" name="Include" type="Include"/>
-			<xs:element maxOccurs="1" minOccurs="0" name="Backend" type="Backend"/>
-			<xs:element maxOccurs="unbounded" minOccurs="0" name="TypeMapping" type="TypeMapping"/>
-			<xs:choice maxOccurs="unbounded" minOccurs="0">
-				<xs:element name="Node" type="Node"/>
-				<xs:element name="Entry" type="Entry"/>
-				<xs:element name="Import" type="Import"/>
-			</xs:choice>
-		</xs:sequence>
-		<xs:attribute name="name" type="xs:string" use="optional"/>
-		<xs:attribute name="prefix" type="xs:string" use="optional"/>
-		<xs:attribute name="baseKey" type="xs:string" use="optional"/>
+	<!-- Complex type with inheritance plus -->
+	<xs:complexType name="Type5">
+		<xs:complexContent>
+			<xs:extension base="Type1">
+				<xs:sequence>
+					<xs:element type="Type1" name="type1"/>
+					<xs:element type="Type2" name="type2"  qxg:inherit="true"/>
+				</xs:sequence>
+				<xs:attributeGroup ref="AttrGroup2" qxg:inherit="true"/>
+			</xs:extension>
+		</xs:complexContent>
 	</xs:complexType>
 
-	<!-- root elements-->
-	<xs:element name="Settings" type="Settings"/>
+
+
+	<!-- Mixed complex type -->
+	<xs:complexType name="Type6" mixed="true" qxg:type="QUuid">
+		<xs:sequence>
+			<xs:element type="SimpleType" name="content" maxOccurs="unbounded" minOccurs="5"/>
+		</xs:sequence>
+		<xs:attribute name="mem1" type="xs:string"/>
+		<xs:attribute name="mem2" type="xs:integer"/>
+	</xs:complexType>
+
+	<!-- Mixed complex inherited type -->
+	<xs:complexType name="Type7" mixed="true">
+		<xs:complexContent>
+			<xs:extension base="Type2" qxg:member="alternative">
+				<xs:group ref="Group5" qxg:member="stuff"/>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+
+
+
+	<!-- allowed root elements -->
+	<xs:element name="Root1" type="Type1"/>
+	<xs:element name="Root2" type="Type2"/>
+	<xs:element name="Root3" type="Type3"/>
+	<xs:element name="Root4" type="Type4"/>
+	<xs:element name="Root5" type="Type5"/>
+	<xs:element name="Root6" type="Type6"/>
+	<xs:element name="Root7" type="Type7"/>
 </xs:schema>
