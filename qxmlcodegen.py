@@ -101,16 +101,82 @@ class MemberDef:
 		return self.name + ": " + self.xmlType + " {" + self.member + ": " + self.cppType + "}"
 
 
+class ContentDef:
+	pass
+
+
+class SequenceContentDef:
+	class Element:
+		min: int = 1
+		max: int = 1
+		element: ContentDef = None
+
+		def is_single(self) -> bool:
+			return self.min == 1 and self.max == 1
+
+		def is_optional(self) -> bool:
+			return self.min == 0 and self.max == 1
+
+		def __repr__(self):
+			return str(self.element) + "[" + str(self.min) + ":" + str(self.max) + "]"
+
+	elements: list
+
+	def __init__(self):
+		self.elements = []
+
+	def __repr__(self):
+		return ";\n".join(map(str, self.elements)) + ";"
+
+
+class ChoiceContentDef:
+	choices: list
+	unordered: bool = False
+
+	def __init__(self):
+		self.choices = []
+
+	def __repr__(self):
+		return "[" + " | ".join(map(str, self.choices)) + "]" if self.unordered else "<" + " | ".join(map(str, self.choices)) + ">"
+
+
+class AllContentDef:
+	class Element:
+		optional: bool = False
+		element: ContentDef = None
+
+		def __repr__(self):
+			return "[{}]".format(str(self.element)) if self.optional else str(self.element)
+
+	elements: list
+
+	def __init__(self):
+		self.elements = []
+
+	def __repr__(self):
+		return "(" + ", ".join(map(str, self.elements)) + ")"
+
+
+class TypeContentDef:
+	is_group: bool = False
+	name: str = ""
+	member: str = ""
+	type_key: str = ""
+	inherit: bool = False
+
+	def __repr__(self):
+		return self.name + "[" + self.type_key + "] {" + self.member + "}"
+
+
 class TypeDef:
-	xmlName: str = ""
-	cppName: str = ""
+	name: str = ""
 	members: list
 
 	def __init__(self):
 		self.members = []
 
 	def __repr__(self):
-		return self.xmlName + " {" + self.cppName + "} -> " + str(self.members)
+		return self.name + " -> " + str(self.members)
 
 
 class SimpleTypeDef(TypeDef):
@@ -119,18 +185,17 @@ class SimpleTypeDef(TypeDef):
 	contentCppType: str = ""
 
 	def __repr__(self):
-		return self.xmlName + "[" + self.contentXmlType + "]" + \
-			" {" + self.cppName + "[" + self.contentMember + ": " + self.contentCppType + "]" + \
+		return self.name + "[" + self.contentXmlType + "]" + \
+			" {" + self.contentMember + ": " + self.contentCppType + \
 			"} -> " + str(self.members)
 
 
 class ComplexTypeDef(TypeDef):
 	baseType: str = ""
+	content: ContentDef = None
 
 	def __repr__(self):
-		return self.xmlName + "[" + self.baseType + "]" + \
-			" {" + self.cppName + \
-			"} -> " + str(self.members)
+		return self.name + "[" + self.baseType + "] -> " + str(self.members) + " {\n" + str(self.content) + "\n}"
 
 
 class GroupTypeDef(TypeDef):
@@ -215,12 +280,112 @@ class XmlCodeGenerator:
 				include.local = child.attrib["local"].lower() == "true"
 			self.config.includes.append(include)
 
-	def read_qxg(self, node: Element, attr: str, default: str) -> str:
+	def read_qxg(self, node: Element, attr: str, default: str, map_type: bool = False) -> str:
 		rep_attr = self.ns_replace_inv("qxg:" + attr)
 		if rep_attr in node.attrib:
 			return node.attrib[rep_attr]
 		else:
-			return default
+			return self.xs_type_map[default] if map_type else default
+
+	def read_occurs(self, node: Element) -> (int, int):
+		min_occurs = node.attrib["minOccurs"] if "minOccurs" in node.attrib else 1
+		max_occurs = node.attrib["maxOccurs"] if "maxOccurs" in node.attrib else 1
+		return int(min_occurs), -1 if max_occurs == "unbounded" else int(max_occurs)
+
+	def read_sequence_content(self, node: Element) -> SequenceContentDef:
+		sequence = SequenceContentDef()
+		for child in node:
+			nstag = self.ns_replace(child.tag)
+			elem = SequenceContentDef.Element()
+			elem.min, elem.max = self.read_occurs(child)
+			if nstag == "xs:sequence":
+				if not elem.is_single():
+					raise Exception("A xs:sequence with not exactly 1 occurrence within a xs:sequence is not supported. Make the inner xs:sequence a xs:group")
+				else:
+					sub_elem = self.read_sequence_content(child)
+					sequence.elements += sub_elem.elements
+			elif nstag == "xs:choice":
+				elem.element = self.read_choice_content(child)
+				elem.element.unordered = self.read_qxg(child, "unordered", "false").lower() == "true"
+			elif nstag == "xs:all":
+				raise Exception("An xs:all within a xs:sequence is not supported. Make the inner xs:all a xs:group")
+			elif nstag == "xs:element" or nstag == "xs:group":
+				elem.element = self.read_type_content(child, elem.is_single())
+			else:
+				raise Exception("Unsupported element {} within a xs:sequence".format(nstag))
+
+			if elem.element:
+				sequence.elements.append(elem)
+		return sequence
+
+	def read_choice_content(self, node: Element) -> ChoiceContentDef:
+		choice = ChoiceContentDef()
+		for child in node:
+			nstag = self.ns_replace(child.tag)
+			if nstag == "xs:sequence":
+				raise Exception("A xs:sequence within a xs:choice is not supported. Make the xs:sequence a xs:group")
+			elif nstag == "xs:choice":
+				sub_choices = self.read_choice_content(child)
+				choice.choices += sub_choices.choices
+			elif nstag == "xs:all":
+				raise Exception("An xs:all within a xs:choice is not supported. Make the inner xs:all a xs:group")
+			elif nstag == "xs:element" or nstag == "xs:group":
+				choice.choices.append(self.read_type_content(child, False))
+			else:
+				raise Exception("Unsupported element {} within a xs:choice".format(nstag))
+		return choice
+
+	def read_all_content(self, node: Element) -> AllContentDef:
+		allc = AllContentDef()
+		for child in node:
+			nstag = self.ns_replace(child.tag)
+			elem = AllContentDef.Element()
+			omin, omax = self.read_occurs(child)
+			if omin > 1 or omax != 1:
+				raise Exception("Invalid occurrences on element within xs:all")
+			elem.optional = omin == 0
+
+			if nstag == "xs:sequence":
+				raise Exception("A xs:sequence within a xs:all is not supported. Make the xs:sequence a xs:group")
+			elif nstag == "xs:choice":
+				elem.element = self.read_choice_content(child)
+			elif nstag == "xs:all":
+				raise Exception("An xs:all within a xs:all is not supported. Make the inner xs:all a xs:group")
+			elif nstag == "xs:element" or nstag == "xs:group":
+				elem.element = self.read_type_content(child, False)
+			else:
+				raise Exception("Unsupported element {} within a xs:choice".format(nstag))
+
+			if elem.element:
+				allc.elements.append(elem)
+		return allc
+
+	def read_type_content(self, node: Element, allow_inherit: bool) -> TypeContentDef:
+		nstag = self.ns_replace(node.tag)
+		content = TypeContentDef()
+
+		inherit_mem = self.read_qxg(node, "inherit", "")
+		if inherit_mem != "":
+			if allow_inherit:
+				content.inherit = True
+			else:
+				raise Exception("Found qxg:inherit on {} - but it is not allowed in the current scope".format(nstag))
+
+		if nstag == "xs:element":
+			content.is_group = False
+			content.name = node.attrib["name"]
+			content.member = self.read_qxg(node, "member", content.name.lower())
+			content.type_key = node.attrib["type"]
+		elif nstag == "xs:group":
+			content.is_group = True
+			content.member = self.read_qxg(node, "member", "")
+			if content.member == "" and not content.inherit:
+				raise Exception("A xs:group must have an explicitly set qxg:member or qxg:inherit set to true")
+			content.type_key = node.attrib["ref"]
+		else:
+			raise Exception("UNREACHABLE")
+
+		return content
 
 	def read_type(self, node: Element) -> TypeDef:
 		content_node = None
@@ -238,7 +403,7 @@ class XmlCodeGenerator:
 				type_def = SimpleTypeDef()
 				# read content type later
 				type_def.contentXmlType = content_node.attrib["base"]
-				type_def.contentCppType = self.read_qxg(content_node, "type", type_def.contentXmlType)
+				type_def.contentCppType = self.read_qxg(content_node, "type", type_def.contentXmlType, map_type=True)
 		# check for complex content
 		if content_node is None:
 			content_node = node.find("xs:complexContent", namespaces=self.ns_map)
@@ -254,24 +419,61 @@ class XmlCodeGenerator:
 			type_def = ComplexTypeDef()
 
 		# extract the name
-		type_def.xmlName = node.attrib["name"]
-		type_def.cppName = self.read_qxg(node, "class", type_def.xmlName)
+		type_def.name = node.attrib["name"]
 		# simple: content type
 		if isinstance(type_def, SimpleTypeDef):
-			type_def.contentMember = self.read_qxg(content_node, "member", type_def.cppName.lower())
+			type_def.contentMember = self.read_qxg(content_node, "member", type_def.name.lower())
 
 		# extract all attributes
 		for attrib in content_node.findall("xs:attribute", namespaces=self.ns_map):
 			member = MemberDef()
 			# type
 			member.xmlType = attrib.attrib["type"]
-			member.cppType = self.read_qxg(attrib, "type", member.xmlType)
+			member.cppType = self.read_qxg(attrib, "type", member.xmlType, map_type=True)
 			# name
 			member.name = attrib.attrib["name"]
 			member.member = self.read_qxg(attrib, "member", member.name)
 
 			# append
 			type_def.members.append(member)
+
+		# complex: content elements
+		if isinstance(type_def, ComplexTypeDef):
+			sub_content = None
+			allow_count = False
+			if sub_content is None:
+				sub_content = content_node.find("xs:sequence", namespaces=self.ns_map)
+				if sub_content is not None:
+					type_def.content = self.read_sequence_content(sub_content)
+			if sub_content is None:
+				sub_content = content_node.find("xs:choice", namespaces=self.ns_map)
+				if sub_content is not None:
+					type_def.content = self.read_choice_content(sub_content)
+					allow_count = True
+			if sub_content is None:
+				sub_content = content_node.find("xs:all", namespaces=self.ns_map)
+				if sub_content is not None:
+					type_def.content = self.read_all_content(sub_content)
+			if sub_content is None:
+				sub_content = content_node.find("xs:element", namespaces=self.ns_map)
+				if sub_content is not None:
+					type_def.content = self.read_type_content(sub_content, True)
+					allow_count = True
+			if sub_content is None:
+				sub_content = content_node.find("xs:group", namespaces=self.ns_map)
+				if sub_content is not None:
+					type_def.content = self.read_type_content(sub_content, True)
+					allow_count = True
+			# if applicable: apply count
+			if allow_count:
+				elem = SequenceContentDef.Element()
+				elem.min, elem.max = self.read_occurs(sub_content)
+				if elem.min != 1 or elem.max != 1:
+					if isinstance(type_def.content, TypeContentDef) and type_def.content.inherit:
+						raise Exception("Found qxg:inherit on {} - but it is not allowed in combination with occurs".format(self.ns_replace(sub_content.tag)))
+					elem.element = type_def.content
+					type_def.content = SequenceContentDef()
+					type_def.content.elements.append(elem)
 
 		print(type_def)
 		return type_def
