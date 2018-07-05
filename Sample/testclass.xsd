@@ -7,6 +7,7 @@
 				visibility="protected"
 				stdcompat="true">
 		<qxg:include>QtCore/QDateTime</qxg:include>
+		<qxg:include>QtCore/QAtomicInt</qxg:include>
 		<qxg:include local="true">mytype.h</qxg:include>
 	</qxg:config>
 
@@ -28,7 +29,7 @@
 	<!-- Simple type with cpp member name and type -->
 	<xs:complexType name="AnotherSimpleType">
 		<xs:simpleContent>
-			<xs:extension base="xs:int" qxg:type="int" qxg:member="value"/>
+			<xs:extension base="xs:int" qxg:type="QAtomicInt" qxg:member="value"/>
 		</xs:simpleContent>
 	</xs:complexType>
 

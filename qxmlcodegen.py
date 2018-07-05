@@ -89,7 +89,24 @@ class QxgConfig:
 
 
 class ContentDef:
-	pass
+	def is_inherited(self) -> bool:
+		return False
+
+	def inherits(self) -> list:
+		return []
+
+	def generate_type(self) -> str:
+		raise NotImplementedError()
+
+	def member_name(self) -> str:
+		raise NotImplementedError()
+
+	def write_hdr_content(self, hdr: TextIOBase):
+		try:
+			if not self.is_inherited():
+				hdr.write("\t\t{} {};\n".format(self.generate_type(), self.member_name()))
+		except NotImplementedError:
+			pass
 
 
 class SequenceContentDef(ContentDef):
@@ -115,6 +132,26 @@ class SequenceContentDef(ContentDef):
 	def __repr__(self):
 		return ";\n".join(map(str, self.elements)) + ";"
 
+	def inherits(self) -> list:
+		inh = []
+		for elem in self.elements:
+			inh += elem.element.inherits()
+		return inh
+
+	def write_hdr_content(self, hdr: TextIOBase):
+		for elem in self.elements:
+			if elem.element.is_inherited():
+				continue
+
+			if elem.is_single():
+				elem.element.write_hdr_content(hdr)
+			elif elem.is_optional():
+				hdr.write("\t\toptional<{}> {};\n".format(elem.element.generate_type(), elem.element.member_name()))
+			elif isinstance(elem.element, ChoiceContentDef) and elem.element.unordered:
+				elem.element.write_hdr_content(hdr)
+			else:
+				hdr.write("\t\tQList<{}> {};\n".format(elem.element.generate_type(), elem.element.member_name()))
+
 
 class ChoiceContentDef(ContentDef):
 	choices: list
@@ -126,6 +163,19 @@ class ChoiceContentDef(ContentDef):
 
 	def __repr__(self):
 		return "[" + " | ".join(map(str, self.choices)) + "]" if self.unordered else self.member + "<" + " | ".join(map(str, self.choices)) + ">"
+
+	def generate_type(self) -> str:
+		return "variant<{}>".format(", ".join(map(lambda c: c.generate_type(), self.choices)))
+
+	def member_name(self) -> str:
+		return self.member
+
+	def write_hdr_content(self, hdr: TextIOBase):
+		if self.unordered:
+			for choice in self.choices:
+				hdr.write("\t\tQList<{}> {};\n".format(choice.generate_type(), choice.member_name()))
+		else:
+			super(ChoiceContentDef, self).write_hdr_content(hdr)
 
 
 class AllContentDef(ContentDef):
@@ -144,6 +194,13 @@ class AllContentDef(ContentDef):
 	def __repr__(self):
 		return "(" + ", ".join(map(str, self.elements)) + ")"
 
+	def write_hdr_content(self, hdr: TextIOBase):
+		for elem in self.elements:
+			if elem.optional:
+				hdr.write("\t\toptional<{}> {};\n".format(elem.element.generate_type(), elem.element.member_name()))
+			else:
+				elem.element.write_hdr_content(hdr)
+
 
 class TypeContentDef(ContentDef):
 	is_group: bool = False
@@ -155,6 +212,18 @@ class TypeContentDef(ContentDef):
 	def __repr__(self):
 		return self.name + "[" + self.type_key + "] " + \
 			("<inherited>" if self.inherit else ("{" + self.member + "}"))
+
+	def is_inherited(self) -> bool:
+		return self.inherit
+
+	def inherits(self) -> list:
+		return [self.type_key] if self.inherit else []
+
+	def generate_type(self) -> str:
+		return self.type_key
+
+	def member_name(self) -> str:
+		return self.member
 
 
 class MemberDef:
@@ -185,6 +254,15 @@ class TypeDef:
 	def __repr__(self):
 		return self.name + " -> " + str(self.members + self.member_groups)
 
+	def inherits(self) -> list:
+		if self.member_groups is not None:
+			return list(map(lambda m: m.type_key, filter(lambda m: m.inherit, self.member_groups)))
+		else:
+			return []
+
+	def write_hdr_content(self, hdr: TextIOBase):
+		pass
+
 
 class SimpleTypeDef(TypeDef):
 	contentMember: str = ""
@@ -196,6 +274,9 @@ class SimpleTypeDef(TypeDef):
 			" {" + self.contentMember + ": " + self.contentCppType + \
 			"} -> " + str(self.members + self.member_groups)
 
+	def write_hdr_content(self, hdr: TextIOBase):
+		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
+
 
 class ComplexTypeDef(TypeDef):
 	baseType: str = ""
@@ -203,6 +284,19 @@ class ComplexTypeDef(TypeDef):
 
 	def __repr__(self):
 		return self.name + "[" + self.baseType + "] -> " + str(self.members + self.member_groups) + " {\n" + str(self.content) + "\n}"
+
+	def inherits(self) -> list:
+		inh = []
+		if self.baseType != "":
+			inh.append(self.baseType)
+		if self.content is not None:
+			inh += self.content.inherits()
+		inh += super(ComplexTypeDef, self).inherits()
+		return inh
+
+	def write_hdr_content(self, hdr: TextIOBase):
+		if self.content is not None:
+			self.content.write_hdr_content(hdr)
 
 
 class MixedTypeDef(ComplexTypeDef):
@@ -215,12 +309,27 @@ class MixedTypeDef(ComplexTypeDef):
 			"} -> " + str(self.members + self.member_groups) + \
 			" {\n" + str(self.content) + "\n}"
 
+	def write_hdr_content(self, hdr: TextIOBase):
+		super(MixedTypeDef, self).write_hdr_content(hdr)
+		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
+
 
 class GroupTypeDef(TypeDef):
 	content: ContentDef = None
 
 	def __repr__(self):
 		return self.name + " -> {\n" + str(self.content) + "\n}"
+
+	def inherits(self) -> list:
+		inh = []
+		if self.content is not None:
+			inh += self.content.inherits()
+		inh += super(GroupTypeDef, self).inherits()
+		return inh
+
+	def write_hdr_content(self, hdr: TextIOBase):
+		if self.content is not None:
+			self.content.write_hdr_content(hdr)
 
 
 class AttrGroupTypeDef(TypeDef):
@@ -568,10 +677,45 @@ class XmlCodeGenerator:
 		self.hdr.write("class {}\n".format(self.config.prefix + " " + self.config.className if self.config.prefix != "" else self.config.className))
 		self.hdr.write("{\n")
 		self.hdr.write("public:\n")
+		if self.config.stdcompat:
+			self.hdr.write("\tusing optional = std::optional;\n")
+			self.hdr.write("\tusing variant = std::variant;\n\n")
+		else:
+			self.hdr.write("\tusing optional = nonstd::optional;\n")
+			self.hdr.write("\tusing variant = nonstd::variant;\n\n")
 		self.hdr.write("\t{}();\n\n".format(self.config.className))
 
 		if self.config.visibility is QxgConfig.Visibility.Private:
 			self.hdr.write("protected:\n")
+
+	def write_hdr_types(self, type_defs: list):
+		known_types = set()
+		for type_def in type_defs:
+			known_types.add(type_def.name)
+
+			inh = type_def.inherits()
+			for base in inh:
+				if base not in known_types:
+					self.hdr.write("\tstruct {};\n".format(base))
+					known_types.add(base)
+
+			# write inherits
+			self.hdr.write("\tstruct " + type_def.name)
+			if len(inh) > 0:
+				self.hdr.write(" : public " + ", public ".join(inh))
+			self.hdr.write("\n\t{\n")
+			# write attribs
+			if type_def.members is not None:
+				for member in type_def.members:
+					self.hdr.write("\t\t{} {};\n".format(member.cppType, member.member))
+			if type_def.member_groups is not None:
+				for member in type_def.member_groups:
+					if not member.inherit:
+						self.hdr.write("\t\t{} {};\n".format(member.type_key, member.member))
+			# write content
+			type_def.write_hdr_content(self.hdr)
+			#write end
+			self.hdr.write("\t};\n\n")
 
 	def xmlcodegen(self, xsd_path: str, hdr_path: str, src_path: str, verify: bool = True):
 		if verify:
@@ -587,7 +731,7 @@ class XmlCodeGenerator:
 			self.config = QxgConfig(xsd_path)
 		else:
 			self.read_config(conf_node)
-		print(self.config)
+		# TODO print(self.config)
 
 		# read type definitions
 		type_defs = []
@@ -607,20 +751,19 @@ class XmlCodeGenerator:
 			else:
 				raise Exception("XSD-Type {} is not supported as top level element".format(xtag))
 
-		for td in type_defs:
-			print(td)
-		for root in root_elements:
-			print(root)
+		# TODO for td in type_defs:
+		# TODO 	print(td)
+		# TODO for root in root_elements:
+		# TODO 	print(root)
 
 		with open(hdr_path, "w") as hdr:
 			self.hdr = hdr
-			with open(src_path, "w") as src:
-				self.src = src
+			# write header
+			self.write_hdr_begin(hdr_path)
+			self.write_hdr_types(type_defs)
 
-				# write hdr/src begin
-				self.write_hdr_begin(hdr_path)
-
-				# write hdr/src end
+		with open(src_path, "w") as src:
+			self.src = src
 
 
 if __name__ == '__main__':
