@@ -368,12 +368,6 @@ class XmlCodeGenerator:
 	}
 
 	config: QxgConfig
-	hdr: TextIOBase
-	src: TextIOBase
-
-	def twrite(self, indent: int, text: str):
-		self.hdr.write("\t" * indent)
-		self.hdr.write(text)
 
 	def ns_replace(self, name: str) -> str:
 		ns_replace_map = {
@@ -650,45 +644,48 @@ class XmlCodeGenerator:
 		type_def.members, type_def.member_groups = self.read_attribs(node)
 		return type_def
 
-	def write_hdr_begin(self, hdr_path: str):
+	def write_hdr_begin(self, hdr: TextIOBase, hdr_path: str):
 		inc_guard = os.path.basename(hdr_path).upper().replace(".", "_")
-		self.hdr.write("#ifndef {}\n".format(inc_guard))
-		self.hdr.write("#define {}\n\n".format(inc_guard))
+		hdr.write("#ifndef {}\n".format(inc_guard))
+		hdr.write("#define {}\n\n".format(inc_guard))
 
 		if self.config.stdcompat:
-			self.hdr.write("#include \"optional.hpp\"\n")
-			self.hdr.write("#include \"variant.hpp\"\n\n")
+			hdr.write("#include \"optional.hpp\"\n")
+			hdr.write("#include \"variant.hpp\"\n\n")
 		else:
-			self.hdr.write("#include <optional>\n")
-			self.hdr.write("#include <variant>\n\n")
+			hdr.write("#include <optional>\n")
+			hdr.write("#include <variant>\n\n")
 
-		self.hdr.write("#include <QtCore/QString>\n")
-		self.hdr.write("#include <QtCore/QList>\n")
+		hdr.write("#include <QtCore/QString>\n")
+		hdr.write("#include <QtCore/QList>\n")
+		hdr.write("#include <QtCore/QIODevice>\n")
+		hdr.write("#include <QtCore/QXmlStreamReader>\n")
 		for include in self.config.includes:
 			if include.local:
-				self.hdr.write("#include \"{}\"\n".format(include.include))
+				hdr.write("#include \"{}\"\n".format(include.include))
 			else:
-				self.hdr.write("#include <{}>\n".format(include.include))
-		self.hdr.write("\n")
+				hdr.write("#include <{}>\n".format(include.include))
+		hdr.write("\n")
 
 		if self.config.ns != "":
-			self.hdr.write("namespace {} {{\n\n".format(self.config.ns))
+			hdr.write("namespace {} {{\n\n".format(self.config.ns))
 
-		self.hdr.write("class {}\n".format(self.config.prefix + " " + self.config.className if self.config.prefix != "" else self.config.className))
-		self.hdr.write("{\n")
-		self.hdr.write("public:\n")
+		hdr.write("class {}\n".format(self.config.prefix + " " + self.config.className if self.config.prefix != "" else self.config.className))
+		hdr.write("{\n")
+		hdr.write("public:\n")
 		if self.config.stdcompat:
-			self.hdr.write("\tusing optional = std::optional;\n")
-			self.hdr.write("\tusing variant = std::variant;\n\n")
+			hdr.write("\tusing optional = nonstd::optional;\n")
+			hdr.write("\tusing variant = nonstd::variant;\n\n")
 		else:
-			self.hdr.write("\tusing optional = nonstd::optional;\n")
-			self.hdr.write("\tusing variant = nonstd::variant;\n\n")
-		self.hdr.write("\t{}();\n\n".format(self.config.className))
+			hdr.write("\tusing optional = std::optional;\n")
+			hdr.write("\tusing variant = std::variant;\n\n")
+		hdr.write("\t{}();\n".format(self.config.className))
+		hdr.write("\tvirtual ~{}();\n\n".format(self.config.className))
 
+	def write_hdr_types(self, hdr: TextIOBase, type_defs: list):
 		if self.config.visibility is QxgConfig.Visibility.Private:
-			self.hdr.write("protected:\n")
+			hdr.write("protected:\n")
 
-	def write_hdr_types(self, type_defs: list):
 		known_types = set()
 		for type_def in type_defs:
 			known_types.add(type_def.name)
@@ -696,26 +693,117 @@ class XmlCodeGenerator:
 			inh = type_def.inherits()
 			for base in inh:
 				if base not in known_types:
-					self.hdr.write("\tstruct {};\n".format(base))
+					hdr.write("\tstruct {};\n".format(base))
 					known_types.add(base)
 
 			# write inherits
-			self.hdr.write("\tstruct " + type_def.name)
+			hdr.write("\tstruct " + type_def.name)
 			if len(inh) > 0:
-				self.hdr.write(" : public " + ", public ".join(inh))
-			self.hdr.write("\n\t{\n")
+				hdr.write(" : public " + ", public ".join(inh))
+			hdr.write("\n\t{\n")
 			# write attribs
 			if type_def.members is not None:
 				for member in type_def.members:
-					self.hdr.write("\t\t{} {};\n".format(member.cppType, member.member))
+					hdr.write("\t\t{} {};\n".format(member.cppType, member.member))
 			if type_def.member_groups is not None:
 				for member in type_def.member_groups:
 					if not member.inherit:
-						self.hdr.write("\t\t{} {};\n".format(member.type_key, member.member))
+						hdr.write("\t\t{} {};\n".format(member.type_key, member.member))
 			# write content
-			type_def.write_hdr_content(self.hdr)
+			type_def.write_hdr_content(hdr)
 			#write end
-			self.hdr.write("\t};\n\n")
+			hdr.write("\t};\n\n")
+
+	def write_hdr_methods(self, hdr: TextIOBase, type_defs: list, root_elements: list):
+		hdr.write("\tvirtual variant<{}> readDocument(QIODevice *device) const;\n".format(", ".join(map(lambda t: t.type_key, root_elements))))
+		hdr.write("\tvirtual variant<{}> readDocument(const QString &path) const;\n\n".format(", ".join(map(lambda t: t.type_key, root_elements))))
+
+		if self.config.visibility is QxgConfig.Visibility.Protected:
+			hdr.write("protected:\n")
+
+		for type_def in type_defs:
+			hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data) const;\n".format(type_def.name, type_def.name))
+
+	def write_hdr_end(self, hdr: TextIOBase):
+		hdr.write("\n\ttemplate <typename T>\n")
+		hdr.write("\tT readOptionalAttrib(QXmlStreamReader &reader, const QString &key, T defaultValue = {}) const;\n")
+		hdr.write("\ttemplate <typename T>\n")
+		hdr.write("\tT readRequiredAttrib(QXmlStreamReader &reader, const QString &key) const;\n\n")
+
+		hdr.write("\tvoid checkError(QXmlStreamReader &reader) const;\n")
+		hdr.write("\tQ_NORETURN void throwFile(const QFileDevice &file) const;\n")
+		hdr.write("\tQ_NORETURN void throwReader(QXmlStreamReader &reader, const QString &overwriteError = {}) const;\n")
+		hdr.write("\tQ_NORETURN void throwChild(QXmlStreamReader &reader) const;\n")
+		hdr.write("};\n\n")
+
+		hdr.write("template <>\n")
+		hdr.write("bool {}::readOptionalAttrib(QXmlStreamReader &reader, const QString &key, bool defaultValue) const;\n".format(self.config.className))
+		hdr.write("template <>\n")
+		hdr.write("bool {}::readRequiredAttrib(QXmlStreamReader &reader, const QString &key) const;\n\n".format(self.config.className))
+
+		hdr.write("template <typename T>\n")
+		hdr.write("T {}::readOptionalAttrib(QXmlStreamReader &reader, const QString &key, T defaultValue) const;\n".format(self.config.className))
+		hdr.write("{\n")
+		hdr.write("\tif(reader.attributes().hasAttribute(key))\n")
+		hdr.write("\t\treturn QVariant{reader.attributes().value(key).toString()}.template value<T>();\n")
+		hdr.write("\telse\n")
+		hdr.write("\t\treturn std::move(defaultValue);\n")
+		hdr.write("}\n\n")
+
+		hdr.write("template <typename T>\n")
+		hdr.write("T {}::readRequiredAttrib(QXmlStreamReader &reader, const QString &key) const;\n".format(self.config.className))
+		hdr.write("{\n")
+		hdr.write("\tif(reader.attributes().hasAttribute(key))\n")
+		hdr.write("\t\treturn QVariant{reader.attributes().value(key).toString()}.template value<T>();\n")
+		hdr.write("\telse\n")
+		hdr.write("\t\tthrowReader(reader, QStringLiteral(\"Required attribute \\\"%1\\\" but was not set\").arg(key));\n")
+		hdr.write("}\n\n")
+
+		if self.config.ns != "":
+			hdr.write("}\n\n")
+		hdr.write("#endif\n")
+
+	def write_src_begin(self, src: TextIOBase, hdr_path: str):
+		src.write("#include \"{}\"\n".format(os.path.basename(hdr_path)))
+		src.write("#include <QtCore/QFile>\n\n".format(os.path.basename(hdr_path)))
+		src.write("{}::{}() = default;\n\n".format(self.config.className, self.config.className))
+		src.write("{}::~{}() = default;\n\n".format(self.config.className, self.config.className))
+
+	def write_src_doc(self, src: TextIOBase, root_elements: list):
+		type_args = ", ".join(map(lambda t: t.type_key, root_elements))
+
+		# device method
+		src.write("{}::variant<{}> {}::readDocument(QIODevice *device) const\n".format(self.config.className, type_args, self.config.className))
+		src.write("{\n")
+		src.write("\tQ_ASSERT_X(device && device->isReadable(), Q_FUNC_INFO, \"Passed device must be open and readable\"\n")
+		src.write("\tQXmlStreamReader reader{device};\n")
+		src.write("\tif(!reader.readNextStartElement())\n")
+		src.write("\t\tthrowReader(reader);\n\n")
+
+		is_first = True
+		for root in root_elements:
+			if is_first:
+				src.write("\t")
+				is_first = False
+			else:
+				src.write(" else ")
+			src.write("if(reader.name() == QStringLiteral(\"{}\")) {{\n".format(root.name))
+			src.write("\t\t{} data;\n".format(root.type_key))
+			src.write("\t\tread_{}(reader, data);\n".format(root.type_key))
+			src.write("\t\treturn data;\n")
+			src.write("\t}")
+		src.write(" else\n")
+		src.write("\t\tthrowChild(reader);\n")
+		src.write("}\n\n")
+
+		# file method
+		src.write("{}::variant<{}> {}::readDocument(const QString &path) const\n".format(self.config.className, type_args, self.config.className))
+		src.write("{\n")
+		src.write("\tQFile xmlFile{path};\n")
+		src.write("\tif(!xmlFile.open(QIODevice::ReadOnly | QIODevice::Text))\n")
+		src.write("\t\tthrowFile(xmlFile);\n")
+		src.write("\treturn readDocument(&xmlFile);\n")
+		src.write("}\n\n")
 
 	def xmlcodegen(self, xsd_path: str, hdr_path: str, src_path: str, verify: bool = True):
 		if verify:
@@ -731,7 +819,6 @@ class XmlCodeGenerator:
 			self.config = QxgConfig(xsd_path)
 		else:
 			self.read_config(conf_node)
-		# TODO print(self.config)
 
 		# read type definitions
 		type_defs = []
@@ -751,19 +838,15 @@ class XmlCodeGenerator:
 			else:
 				raise Exception("XSD-Type {} is not supported as top level element".format(xtag))
 
-		# TODO for td in type_defs:
-		# TODO 	print(td)
-		# TODO for root in root_elements:
-		# TODO 	print(root)
-
 		with open(hdr_path, "w") as hdr:
-			self.hdr = hdr
-			# write header
-			self.write_hdr_begin(hdr_path)
-			self.write_hdr_types(type_defs)
+			self.write_hdr_begin(hdr, hdr_path)
+			self.write_hdr_types(hdr, type_defs)
+			self.write_hdr_methods(hdr, type_defs, root_elements)
+			self.write_hdr_end(hdr)
 
 		with open(src_path, "w") as src:
-			self.src = src
+			self.write_src_begin(src, hdr_path)
+			self.write_src_doc(src, root_elements)
 
 
 if __name__ == '__main__':
