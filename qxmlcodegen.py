@@ -95,6 +95,9 @@ class ContentDef:
 	def inherits(self) -> list:
 		return []
 
+	def is_group_type(self) -> bool:
+		return False
+
 	def generate_type(self) -> str:
 		raise NotImplementedError()
 
@@ -124,6 +127,51 @@ class ContentDef:
 				self.twrite(out, intendent, "throwChild(reader);\n")
 		else:
 			self.twrite(out, intendent, "{} = {};\n".format(return_target, "true" if ok else "false"))
+
+
+class TypeContentDef(ContentDef):
+	is_group: bool = False
+	name: str = ""
+	member: str = ""
+	type_key: str = ""
+	inherit: bool = False
+
+	def __repr__(self):
+		return self.name + "[" + self.type_key + "] " + \
+			("<inherited>" if self.inherit else ("{" + self.member + "}"))
+
+	def is_inherited(self) -> bool:
+		return self.inherit
+
+	def inherits(self) -> list:
+		return [self.type_key] if self.inherit else []
+
+	def is_group_type(self) -> bool:
+		return self.is_group
+
+	def generate_type(self) -> str:
+		return self.type_key
+
+	def member_name(self) -> str:
+		return self.member
+
+	def xml_name(self) -> str:
+		return self.name
+
+	def write_src_content(self, src: TextIOBase, need_newline: bool, intendent: int, target_member: str = "", target_as_format: bool = False, return_target: str = "") -> bool:
+		if need_newline:
+			src.write("\n")
+
+		if target_member == "":
+			target_member = "data." + self.member
+		elif target_as_format:
+			target_member = target_member.format(self.member)
+		self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\") {{\n".format(self.name))
+		self.twrite(src, intendent + 1, "read_{}(reader, {});\n".format(self.type_key, target_member))
+		self.write_return(src, intendent + 1, return_target, True)
+		self.twrite(src, intendent, "} else\n")
+		self.write_return(src, intendent + 1, return_target, False)
+		return True
 
 
 class SequenceContentDef(ContentDef):
@@ -179,8 +227,15 @@ class SequenceContentDef(ContentDef):
 
 		for elem in self.elements:
 			src.write("\n")
-			if elem.element.inherits():
-				self.twrite(src, intendent, "hasNext = read_{}(reader, data, hasNext);\n".format(elem.element.generate_type()))
+			if elem.element.is_group_type():
+				if elem.element.inherits():
+					self.twrite(src, intendent, "hasNext = read_{}(reader, data, hasNext);\n".format(elem.element.generate_type()))
+				else:
+					self.twrite(src, intendent, "hasNext = read_{}(reader, data.{}, hasNext);\n".format(elem.element.generate_type(), elem.element.member_name()))
+			elif elem.element.inherits():
+				self.twrite(src, intendent, "read_{}(reader, data);\n".format(elem.element.generate_type()))
+			elif isinstance(elem.element, AllContentDef):
+				elem.element.write_src_content(src, False, intendent, return_target="_ok")
 			elif elem.is_single():
 				self.twrite(src, intendent, "if(!hasNext)\n")
 				self.twrite(src, intendent + 1, "throw no_child;\n") # TODO implement
@@ -218,12 +273,11 @@ class SequenceContentDef(ContentDef):
 				if elem.min > 0:
 					self.twrite(src, intendent, "if(data.{}.size() < {})\n".format(elem.element.member_name(), elem.max))
 					self.twrite(src, intendent + 1, "throw size_error;\n") # TODO implement
-
 		return True
 
 
 class ChoiceContentDef(ContentDef):
-	choices: list
+	choices: list  # list of TypeContentDef
 	unordered: bool = False
 	member: str = ""
 
@@ -242,7 +296,7 @@ class ChoiceContentDef(ContentDef):
 	def write_hdr_content(self, hdr: TextIOBase):
 		if self.unordered:
 			for choice in self.choices:
-				hdr.write("\t\tQList<{}> {};\n".format(choice.generate_type(), choice.member_name()))
+				hdr.write("\t\tQList<{}> {};\n".format(choice.type_key, choice.member))
 		else:
 			super(ChoiceContentDef, self).write_hdr_content(hdr)
 
@@ -264,9 +318,9 @@ class ChoiceContentDef(ContentDef):
 					self.twrite(src, intendent, "if")
 				else:
 					self.twrite(src, intendent, "} else if")
-				src.write("(reader.name() == QStringLiteral(\"{}\") {{\n".format(choice.xml_name()))
-				self.twrite(src, intendent + 1, "{} = {}{{}};\n".format(target_member, choice.generate_type()))
-				self.twrite(src, intendent + 1, "return read_{}(reader, std::get<{}>({}));\n".format(choice.generate_type(), choice.generate_type(), target_member))
+				src.write("(reader.name() == QStringLiteral(\"{}\") {{\n".format(choice.name))
+				self.twrite(src, intendent + 1, "{} = {}{{}};\n".format(target_member, choice.type_key))
+				self.twrite(src, intendent + 1, "read_{}(reader, std::get<{}>({}));\n".format(choice.type_key, choice.type_key, target_member))
 				self.write_return(src, intendent + 1, return_target, True)
 			self.twrite(src, intendent, "} else\n")
 			self.write_return(src, intendent + 1, return_target, False)
@@ -303,74 +357,46 @@ class AllContentDef(ContentDef):
 		if need_newline:
 			src.write("\n")
 
-		self.twrite(src, intendent, "auto _has_next = true;\n")
-		self.twrite(src, intendent, "auto _ok = false;\n")
+		self.twrite(src, intendent, "{\n")
+		self.twrite(src, intendent + 1, "QSet<int> _usedElements;\n")
+		self.twrite(src, intendent + 1, "while(hasNext) {")
 
+		cnt = 0
+		req_list = []
 		for elem in self.elements:
 			src.write("\n")
-			base_target = "{}" if elem.element.inherits() else "data.{}"
 			if elem.optional:
-				self.twrite(src, intendent, "if(_has_next) {\n")
-				self.twrite(src, intendent + 1, "{} _element;\n".format(elem.element.generate_type()))
-				elem.element.write_src_content(src, False, intendent + 1, target_member="_element", return_target="_ok")
-				self.twrite(src, intendent + 1, "if(_ok) {\n")
-				self.twrite(src, intendent + 2, "{} = std::move(_element);\n".format(base_target.format(elem.element.member_name())))
-				self.twrite(src, intendent + 2, "_has_next = reader.readNextStartElement();\n")
-				self.twrite(src, intendent + 2, "checkError(reader);\n")
-				self.twrite(src, intendent + 1, "}\n")
-				self.twrite(src, intendent, "}\n")
+				self.twrite(src, intendent + 2, "{} _element_{};\n".format(elem.element.generate_type(), cnt))
+				elem.element.write_src_content(src, False, intendent + 2, target_member="_element_{}".format(cnt), return_target="_ok")
+				self.twrite(src, intendent + 2, "if(_ok) {\n")
+				self.twrite(src, intendent + 3, "if(_usedElements.contains({})\n".format(cnt))
+				self.twrite(src, intendent + 4, "throwChild(reader);\n")
+				self.twrite(src, intendent + 3, "_usedElements.insert({});\n".format(cnt))
+				self.twrite(src, intendent + 3, "data.{} = std::move(_element_{});\n".format(elem.element.member_name(), cnt))
+				self.twrite(src, intendent + 3, "hasNext = reader.readNextStartElement();\n")
+				self.twrite(src, intendent + 3, "checkError(reader);\n")
+				self.twrite(src, intendent + 3, "continue;\n")
+				self.twrite(src, intendent + 2, "}\n")
 			else:
-				self.twrite(src, intendent, "if(!_has_next)\n")
-				self.twrite(src, intendent + 1, "throw no_child;\n") # TODO implement
-				elem.element.write_src_content(src, False, intendent, return_target="_ok")
-				self.twrite(src, intendent, "if(_ok) {\n")
-				self.twrite(src, intendent + 1, "_has_next = reader.readNextStartElement();\n")
-				self.twrite(src, intendent + 1, "checkError(reader);\n")
-				self.twrite(src, intendent, "} else\n")
-				self.twrite(src, intendent + 1, "throwChild(reader);\n")
+				elem.element.write_src_content(src, False, intendent + 2, return_target="_ok")
+				self.twrite(src, intendent + 2, "if(_ok) {\n")
+				self.twrite(src, intendent + 3, "if(_usedElements.contains({})\n".format(cnt))
+				self.twrite(src, intendent + 4, "throwChild(reader);\n")
+				self.twrite(src, intendent + 3, "_usedElements.insert({});\n".format(cnt))
+				self.twrite(src, intendent + 3, "hasNext = reader.readNextStartElement();\n")
+				self.twrite(src, intendent + 3, "checkError(reader);\n")
+				self.twrite(src, intendent + 3, "continue;\n")
+				self.twrite(src, intendent + 2, "}\n")
+				req_list.append(cnt)
+			cnt += 1
 
-		return True
+		src.write("\n")
+		self.twrite(src, intendent + 2, "throwChild(reader);\n")
+		self.twrite(src, intendent + 1, "}\n")
+		self.twrite(src, intendent + 1, "if(!_usedElements.contains(QSet<int> {{{}}})\n".format(", ".join(map(str, req_list))))
+		self.twrite(src, intendent + 2, "throw all_not_complete_error;\n")
+		self.twrite(src, intendent, "}\n")
 
-
-class TypeContentDef(ContentDef):
-	is_group: bool = False
-	name: str = ""
-	member: str = ""
-	type_key: str = ""
-	inherit: bool = False
-
-	def __repr__(self):
-		return self.name + "[" + self.type_key + "] " + \
-			("<inherited>" if self.inherit else ("{" + self.member + "}"))
-
-	def is_inherited(self) -> bool:
-		return self.inherit
-
-	def inherits(self) -> list:
-		return [self.type_key] if self.inherit else []
-
-	def generate_type(self) -> str:
-		return self.type_key
-
-	def member_name(self) -> str:
-		return self.member
-
-	def xml_name(self) -> str:
-		return self.name
-
-	def write_src_content(self, src: TextIOBase, need_newline: bool, intendent: int, target_member: str = "", target_as_format: bool = False, return_target: str = "") -> bool:
-		if need_newline:
-			src.write("\n")
-
-		if target_member == "":
-			target_member = "data." + self.member
-		elif target_as_format:
-			target_member = target_member.format(self.member)
-		self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\") {{\n".format(self.name))
-		self.twrite(src, intendent + 1, "read_{}(reader, {});\n".format(self.type_key, target_member))
-		self.write_return(src, intendent + 1, return_target, True)
-		self.twrite(src, intendent, "} else\n")
-		self.write_return(src, intendent + 1, return_target, False)
 		return True
 
 
@@ -408,9 +434,8 @@ class TypeDef:
 	def write_hdr_content(self, hdr: TextIOBase):
 		pass
 
-	def write_src_content(self, src: TextIOBase, need_newline: bool) -> bool:
-		src.write("\treturn hasNext;\n")
-		return need_newline
+	def write_src_content(self, src: TextIOBase, need_newline: bool):
+		pass
 
 
 class SimpleTypeDef(TypeDef):
@@ -426,17 +451,15 @@ class SimpleTypeDef(TypeDef):
 	def write_hdr_content(self, hdr: TextIOBase):
 		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
 
-	def write_src_content(self, src: TextIOBase, need_newline: bool) -> bool:
+	def write_src_content(self, src: TextIOBase, need_newline: bool):
 		if need_newline:
 			src.write("\n")
 		src.write("\tdata.{} = readContent<{}>(reader);\n".format(self.contentMember, self.contentCppType))
-		src.write("\treturn false;\n")
-		return True
 
 
 class ComplexTypeDef(TypeDef):
 	baseType: str = ""
-	content: ContentDef = None
+	content: SequenceContentDef = None
 
 	def __repr__(self):
 		return self.name + "[" + self.baseType + "] -> " + str(self.members + self.member_groups) + " {\n" + str(self.content) + "\n}"
@@ -454,7 +477,7 @@ class ComplexTypeDef(TypeDef):
 		if self.content is not None:
 			self.content.write_hdr_content(hdr)
 
-	def write_src_content(self, src: TextIOBase, need_newline: bool) -> bool:
+	def write_src_content(self, src: TextIOBase, need_newline: bool):
 		# write base class
 		if self.baseType != "":
 			if need_newline:
@@ -464,9 +487,7 @@ class ComplexTypeDef(TypeDef):
 
 		# write content
 		if self.content is not None:
-			need_newline = self.content.write_src_content(src, need_newline, 1)
-
-		return need_newline
+			self.content.write_src_content(src, need_newline, 1)
 
 
 class MixedTypeDef(ComplexTypeDef):
@@ -483,7 +504,7 @@ class MixedTypeDef(ComplexTypeDef):
 		super(MixedTypeDef, self).write_hdr_content(hdr)
 		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
 
-	def write_src_content(self, src: TextIOBase, need_newline: bool) -> bool:
+	def write_src_content(self, src: TextIOBase, need_newline: bool):
 		if need_newline:
 			src.write("\n")
 		src.write("\ttry {\n")
@@ -493,11 +514,11 @@ class MixedTypeDef(ComplexTypeDef):
 		src.write("\t\tif(!reader.isStartElement())\n")
 		src.write("\t\t\tthrow;\n")
 		src.write("\t}\n")
-		return super(MixedTypeDef, self).write_src_content(src, True)
+		super(MixedTypeDef, self).write_src_content(src, True)
 
 
 class GroupTypeDef(TypeDef):
-	content: ContentDef = None
+	content: SequenceContentDef = None
 
 	def __repr__(self):
 		return self.name + " -> {\n" + str(self.content) + "\n}"
@@ -513,11 +534,10 @@ class GroupTypeDef(TypeDef):
 		if self.content is not None:
 			self.content.write_hdr_content(hdr)
 
-	def write_src_content(self, src: TextIOBase, need_newline: bool) -> bool:
+	def write_src_content(self, src: TextIOBase, need_newline: bool):
 		if self.content is not None:
-			return self.content.write_src_content(src, need_newline, 1)
-		else:
-			return need_newline
+			self.content.write_src_content(src, need_newline, 1)
+		src.write("\n\treturn hasNext;\n")
 
 
 class AttrGroupTypeDef(TypeDef):
@@ -640,14 +660,10 @@ class XmlCodeGenerator:
 
 		for child in node:
 			nstag = self.ns_replace(child.tag)
-			if nstag == "xs:sequence":
-				raise Exception("A xs:sequence within a xs:choice is not supported. Make the xs:sequence a xs:group")
-			elif nstag == "xs:choice":
+			if nstag == "xs:choice":
 				sub_choices = self.read_choice_content(child)
 				choice.choices += sub_choices.choices
-			elif nstag == "xs:all":
-				raise Exception("An xs:all within a xs:choice is not supported. Make the inner xs:all a xs:group")
-			elif nstag == "xs:element" or nstag == "xs:group":
+			elif nstag == "xs:element":
 				choice.choices.append(self.read_type_content(child, allow_unnamed=not choice.unordered))
 			else:
 				raise Exception("Unsupported element {} within a xs:choice".format(nstag))
@@ -663,13 +679,9 @@ class XmlCodeGenerator:
 				raise Exception("Invalid occurrences on element within xs:all")
 			elem.optional = omin == 0
 
-			if nstag == "xs:sequence":
-				raise Exception("A xs:sequence within a xs:all is not supported. Make the xs:sequence a xs:group")
-			elif nstag == "xs:choice":
+			if nstag == "xs:choice":
 				elem.element = self.read_choice_content(child)
-			elif nstag == "xs:all":
-				raise Exception("An xs:all within a xs:all is not supported. Make the inner xs:all a xs:group")
-			elif nstag == "xs:element" or nstag == "xs:group":
+			elif nstag == "xs:element":
 				elem.element = self.read_type_content(child)
 			else:
 				raise Exception("Unsupported element {} within a xs:choice".format(nstag))
@@ -734,15 +746,15 @@ class XmlCodeGenerator:
 				allow_count = True
 
 		# if applicable: apply count
-		if allow_count:
+		if not isinstance(content, SequenceContentDef):
 			elem = SequenceContentDef.Element()
-			elem.min, elem.max = self.read_occurs(sub_content)
-			if elem.min != 1 or elem.max != 1:
-				if isinstance(content, TypeContentDef) and content.inherit:
+			if allow_count:
+				elem.min, elem.max = self.read_occurs(sub_content)
+				if (elem.min != 1 or elem.max != 1) and isinstance(content, TypeContentDef) and content.inherit:
 					raise Exception("Found qxg:inherit on {} - but it is not allowed in combination with occurs".format(self.ns_replace(sub_content.tag)))
-				elem.element = content
-				content = SequenceContentDef()
-				content.elements.append(elem)
+			elem.element = content
+			content = SequenceContentDef()
+			content.elements.append(elem)
 
 		return content
 
@@ -907,7 +919,10 @@ class XmlCodeGenerator:
 			hdr.write("protected:\n")
 
 		for type_def in type_defs:
-			hdr.write("\tvirtual bool read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const;\n".format(type_def.name, type_def.name))
+			if isinstance(type_def, GroupTypeDef):
+				hdr.write("\tvirtual bool read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const;\n".format(type_def.name, type_def.name))
+			else:
+				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data) const;\n".format(type_def.name, type_def.name))
 
 	def write_hdr_end(self, hdr: TextIOBase):
 		hdr.write("\n\ttemplate <typename T>\n")
@@ -1012,7 +1027,10 @@ class XmlCodeGenerator:
 
 	def write_src_types(self, src: TextIOBase, type_defs: list):
 		for type_def in type_defs:
-			src.write("bool {}::read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const\n".format(self.config.className, type_def.name, type_def.name))
+			if isinstance(type_def, GroupTypeDef):
+				src.write("bool {}::read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const\n".format(self.config.className, type_def.name, type_def.name))
+			else:
+				src.write("void {}::read_{}(QXmlStreamReader &reader, {} &data) const\n".format(self.config.className, type_def.name, type_def.name))
 			src.write("{\n")
 
 			# write attribs

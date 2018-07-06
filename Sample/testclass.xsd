@@ -79,8 +79,19 @@
 		</xs:all>
 	</xs:group>
 
-	<!-- Group made out of groups (inherit and compose) -->
+	<!-- Basic all group -->
 	<xs:group name="Group4">
+		<xs:all>
+			<xs:element type="SimpleType" name="Type1"/>
+			<xs:choice qxg:member="choice1" minOccurs="0">
+				<xs:element type="SimpleType" name="Type1"/>
+				<xs:element type="AnotherSimpleType" name="Type2"/>
+			</xs:choice>
+		</xs:all>
+	</xs:group>
+
+	<!-- Group made out of groups (inherit and compose) -->
+	<xs:group name="Group5">
 		<xs:sequence>
 			<xs:group ref="Group1" qxg:inherit="true"/>
 			<xs:group ref="Group2" qxg:member="group2" minOccurs="0"/>
@@ -88,8 +99,8 @@
 		</xs:sequence>
 	</xs:group>
 
-	<!-- Group of unordered choice -->
-	<xs:group name="Group5">
+	<!-- TODO Group of unordered choice -->
+	<!--xs:group name="Group6">
 		<xs:sequence>
 			<xs:choice minOccurs="0" maxOccurs="unbounded" qxg:unordered="true">
 				<xs:group ref="Group1" qxg:member="group1"/>
@@ -97,7 +108,7 @@
 				<xs:group ref="Group3" qxg:member="group3"/>
 			</xs:choice>
 		</xs:sequence>
-	</xs:group>
+	</xs:group-->
 
 
 
