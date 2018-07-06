@@ -99,16 +99,15 @@
 		</xs:sequence>
 	</xs:group>
 
-	<!-- TODO Group of unordered choice -->
-	<!--xs:group name="Group6">
+	<!-- Group of unordered choice -->
+	<xs:group name="Group6">
 		<xs:sequence>
-			<xs:choice minOccurs="0" maxOccurs="unbounded" qxg:unordered="true">
-				<xs:group ref="Group1" qxg:member="group1"/>
-				<xs:group ref="Group2" qxg:member="group2"/>
-				<xs:group ref="Group3" qxg:member="group3"/>
+			<xs:choice minOccurs="3" maxOccurs="30" qxg:unordered="true">
+				<xs:element type="SimpleType" name="Type1"/>
+				<xs:element type="AnotherSimpleType" name="Type2"/>
 			</xs:choice>
 		</xs:sequence>
-	</xs:group-->
+	</xs:group>
 
 
 
@@ -138,6 +137,7 @@
 				<xs:element type="Type2" name="TypeB"/>
 			</xs:choice>
 			<xs:group ref="Group5" qxg:inherit="true"/>
+			<xs:group ref="Group6" qxg:member="superGroup"/>
 		</xs:sequence>
 	</xs:complexType>
 

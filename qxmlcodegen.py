@@ -162,15 +162,21 @@ class TypeContentDef(ContentDef):
 		if need_newline:
 			src.write("\n")
 
-		if target_member == "":
-			target_member = "data." + self.member
-		elif target_as_format:
-			target_member = target_member.format(self.member)
-		self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\") {{\n".format(self.name))
-		self.twrite(src, intendent + 1, "read_{}(reader, {});\n".format(self.type_key, target_member))
-		self.write_return(src, intendent + 1, return_target, True)
-		self.twrite(src, intendent, "} else\n")
-		self.write_return(src, intendent + 1, return_target, False)
+		if self.is_group:
+			if self.inherit:
+				self.twrite(src, intendent, "hasNext = read_{}(reader, data, hasNext);\n".format(self.type_key))
+			else:
+				self.twrite(src, intendent, "hasNext = read_{}(reader, data.{}, hasNext);\n".format(self.type_key, self.member))
+		else:
+			if target_member == "":
+				target_member = "data." + self.member
+			elif target_as_format:
+				target_member = target_member.format(self.member)
+			self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\") {{\n".format(self.name))
+			self.twrite(src, intendent + 1, "read_{}(reader, {});\n".format(self.type_key, target_member))
+			self.write_return(src, intendent + 1, return_target, True)
+			self.twrite(src, intendent, "} else\n")
+			self.write_return(src, intendent + 1, return_target, False)
 		return True
 
 
@@ -227,19 +233,12 @@ class SequenceContentDef(ContentDef):
 
 		for elem in self.elements:
 			src.write("\n")
-			if elem.element.is_group_type():
-				if elem.element.inherits():
-					self.twrite(src, intendent, "hasNext = read_{}(reader, data, hasNext);\n".format(elem.element.generate_type()))
-				else:
-					self.twrite(src, intendent, "hasNext = read_{}(reader, data.{}, hasNext);\n".format(elem.element.generate_type(), elem.element.member_name()))
-			elif elem.element.inherits():
-				self.twrite(src, intendent, "read_{}(reader, data);\n".format(elem.element.generate_type()))
-			elif isinstance(elem.element, AllContentDef):
-				elem.element.write_src_content(src, False, intendent, return_target="_ok")
+			if elem.element.is_group_type() or isinstance(elem.element, AllContentDef):
+				elem.element.write_src_content(src, False, intendent,  return_target="_ok")
 			elif elem.is_single():
 				self.twrite(src, intendent, "if(!hasNext)\n")
 				self.twrite(src, intendent + 1, "throw no_child;\n") # TODO implement
-				elem.element.write_src_content(src, False, intendent, return_target="_ok")
+				elem.element.write_src_content(src, False, intendent, target_member="data" if elem.element.inherits() else "", return_target="_ok")
 				self.twrite(src, intendent, "if(_ok) {\n")
 				self.twrite(src, intendent + 1, "hasNext = reader.readNextStartElement();\n")
 				self.twrite(src, intendent + 1, "checkError(reader);\n")
@@ -256,7 +255,14 @@ class SequenceContentDef(ContentDef):
 				self.twrite(src, intendent + 1, "}\n")
 				self.twrite(src, intendent, "}\n")
 			elif isinstance(elem.element, ChoiceContentDef) and elem.element.unordered:
-				need_newline = elem.element.write_src_content(src, need_newline, intendent)
+				self.twrite(src, intendent, "{\n")
+				self.twrite(src, intendent + 1, "int _total = 0;\n")
+				self.twrite(src, intendent + 1, "const int _max = {};\n".format(elem.max))
+				need_newline = elem.element.write_src_content(src, need_newline, intendent + 1)
+				if elem.min > 0:
+					self.twrite(src, intendent + 1, "if(_total < {})\n".format(elem.min))
+					self.twrite(src, intendent + 2, "throw size_error;\n") # TODO implement
+				self.twrite(src, intendent, "}\n")
 			else:
 				self.twrite(src, intendent, "while(hasNext")
 				if elem.max != -1:
@@ -271,7 +277,7 @@ class SequenceContentDef(ContentDef):
 				self.twrite(src, intendent + 1, "checkError(reader);\n")
 				self.twrite(src, intendent, "}\n")
 				if elem.min > 0:
-					self.twrite(src, intendent, "if(data.{}.size() < {})\n".format(elem.element.member_name(), elem.max))
+					self.twrite(src, intendent, "if(data.{}.size() < {})\n".format(elem.element.member_name(), elem.min))
 					self.twrite(src, intendent + 1, "throw size_error;\n") # TODO implement
 		return True
 
@@ -306,12 +312,31 @@ class ChoiceContentDef(ContentDef):
 		if need_newline:
 			src.write("\n")
 
+		is_first = True
 		if self.unordered:
-			pass
+			self.twrite(src, intendent, "while(hasNext && (_max == -1 || _total < _max)) {\n")
+
+			for choice in self.choices:
+				if is_first:
+					is_first = False
+					self.twrite(src, intendent + 1, "if")
+				else:
+					self.twrite(src, intendent + 1, "} else if")
+				src.write("(reader.name() == QStringLiteral(\"{}\") {{\n".format(choice.name))
+				self.twrite(src, intendent + 2, "{} _element;\n".format(choice.generate_type()))
+				self.twrite(src, intendent + 2, "read_{}(reader, _element);\n".format(choice.type_key))
+				self.write_return(src, intendent + 2, return_target, True)
+				self.twrite(src, intendent + 2, "data.{}.append(std::move(_element));\n".format(choice.member_name()))
+
+			self.twrite(src, intendent + 1, "} else\n")
+			self.twrite(src, intendent + 2, "break;\n")
+			self.twrite(src, intendent + 1, "++_total;\n")
+			self.twrite(src, intendent + 1, "hasNext = reader.readNextStartElement();\n")
+			self.twrite(src, intendent + 1, "checkError(reader);\n")
+			self.twrite(src, intendent, "}\n")
 		else:
 			if target_member == "":
 				target_member = "data." + self.member
-			is_first = True
 			for choice in self.choices:
 				if is_first:
 					is_first = False
@@ -483,11 +508,21 @@ class ComplexTypeDef(TypeDef):
 			if need_newline:
 				src.write("\n")
 			need_newline = True
-			src.write("\tread_{}(reader, data);\n".format(self.baseType))
+			src.write("\tread_{}(reader, data, true);\n".format(self.baseType))
 
 		# write content
 		if self.content is not None:
-			self.content.write_src_content(src, need_newline, 1)
+			if need_newline:
+				src.write("\n")
+			if self.baseType != "":
+				src.write("\thasNext = reader.isStartElement();\n")
+			else:
+				src.write("\thasNext = reader.readNextStartElement();\n")
+			need_newline = self.content.write_src_content(src, False, 1)
+			if need_newline:
+				src.write("\n")
+			src.write("\tif(hasNext && !keepElementOpen)\n")
+			src.write("\t\tthrowChild(reader);\n")
 
 
 class MixedTypeDef(ComplexTypeDef):
@@ -505,16 +540,38 @@ class MixedTypeDef(ComplexTypeDef):
 		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
 
 	def write_src_content(self, src: TextIOBase, need_newline: bool):
+		# write base class
+		if self.baseType != "":
+			if need_newline:
+				src.write("\n")
+			need_newline = True
+			src.write("\tcurrent_element = reader.name().toString();\n")
+			src.write("\tread_{}(reader, data, true);\n".format(self.baseType))
+
+		# write simple content
 		if need_newline:
 			src.write("\n")
+		if self.baseType != "":
+			src.write("\tif(!reader.isStartElement() || reader.name() != current_element)\n")
+			src.write("\t\tthrow whatever;\n")  # TODO proper exception
 		src.write("\ttry {\n")
 		src.write("\t\tdata.{} = readContent<{}>(reader);\n".format(self.contentMember, self.contentCppType))
 		src.write("\t\treturn;\n")
-		src.write("\t} catch(...) {\n") # TODO proper exception
+		src.write("\t} catch(...) {\n")  # TODO proper exception
 		src.write("\t\tif(!reader.isStartElement())\n")
 		src.write("\t\t\tthrow;\n")
 		src.write("\t}\n")
-		super(MixedTypeDef, self).write_src_content(src, True)
+
+		# write complex content
+		if self.content is not None:
+			if need_newline:
+				src.write("\n")
+			src.write("\thasNext = true;\n")
+			need_newline = self.content.write_src_content(src, False, 1)
+			if need_newline:
+				src.write("\n")
+			src.write("\tif(hasNext && !keepElementOpen)\n")
+			src.write("\t\tthrowChild(reader);\n")
 
 
 class GroupTypeDef(TypeDef):
@@ -921,6 +978,8 @@ class XmlCodeGenerator:
 		for type_def in type_defs:
 			if isinstance(type_def, GroupTypeDef):
 				hdr.write("\tvirtual bool read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const;\n".format(type_def.name, type_def.name))
+			elif isinstance(type_def, ComplexTypeDef):
+				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data, bool keepElementOpen = false) const;\n".format(type_def.name, type_def.name))
 			else:
 				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data) const;\n".format(type_def.name, type_def.name))
 
@@ -1029,6 +1088,8 @@ class XmlCodeGenerator:
 		for type_def in type_defs:
 			if isinstance(type_def, GroupTypeDef):
 				src.write("bool {}::read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const\n".format(self.config.className, type_def.name, type_def.name))
+			elif isinstance(type_def, ComplexTypeDef):
+				src.write("void {}::read_{}(QXmlStreamReader &reader, {} &data, bool keepElementOpen) const;\n".format(self.config.className, type_def.name, type_def.name))
 			else:
 				src.write("void {}::read_{}(QXmlStreamReader &reader, {} &data) const\n".format(self.config.className, type_def.name, type_def.name))
 			src.write("{\n")
