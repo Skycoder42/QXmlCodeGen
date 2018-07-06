@@ -56,26 +56,26 @@
 	<!-- Basic sequenced group, with all element variations -->
 	<xs:group name="Group1">
 		<xs:sequence>
-			<xs:element type="SimpleType" name="type1"/>
-			<xs:element minOccurs="3" maxOccurs="10" type="AnotherSimpleType" name="type2"/>
-			<xs:element type="SimpleType" name="type3" minOccurs="0" maxOccurs="1"/>
-			<xs:element type="AnotherSimpleType" name="type4" qxg:member="masterType"/>
+			<xs:element type="SimpleType" name="Type1"/>
+			<xs:element minOccurs="3" maxOccurs="10" type="AnotherSimpleType" name="Type2"/>
+			<xs:element type="SimpleType" name="Type3" minOccurs="0" maxOccurs="1"/>
+			<xs:element type="AnotherSimpleType" name="Type4" qxg:member="masterType"/>
 		</xs:sequence>
 	</xs:group>
 
 	<!-- Basic choice group -->
 	<xs:group name="Group2">
 		<xs:choice qxg:member="choice1">
-			<xs:element type="SimpleType" name="type1"/>
-			<xs:element type="AnotherSimpleType" name="type2"/>
+			<xs:element type="SimpleType" name="Type1"/>
+			<xs:element type="AnotherSimpleType" name="Type2"/>
 		</xs:choice>
 	</xs:group>
 
 	<!-- Basic all group -->
 	<xs:group name="Group3">
 		<xs:all>
-			<xs:element type="SimpleType" name="type1"/>
-			<xs:element type="AnotherSimpleType" name="type2" minOccurs="0"/>
+			<xs:element type="SimpleType" name="Type1"/>
+			<xs:element type="AnotherSimpleType" name="Type2" minOccurs="0"/>
 		</xs:all>
 	</xs:group>
 
@@ -104,7 +104,7 @@
 	<!-- Basic complex type -->
 	<xs:complexType name="Type1">
 		<xs:sequence>
-			<xs:element type="SimpleType" name="content" maxOccurs="unbounded" minOccurs="5"/>
+			<xs:element type="SimpleType" name="Content" maxOccurs="unbounded" minOccurs="5"/>
 		</xs:sequence>
 		<xs:attribute name="mem1" type="xs:string"/>
 		<xs:attribute name="mem2" type="xs:integer"/>
@@ -120,11 +120,11 @@
 	<!-- Basic complex type with real content -->
 	<xs:complexType name="Type3">
 		<xs:sequence>
-			<xs:element type="Type1" name="type1" qxg:inherit="true"/>
-			<xs:element type="Type2" name="type2"/>
+			<xs:element type="Type1" name="Type1" qxg:inherit="true"/>
+			<xs:element type="Type2" name="Type2"/>
 			<xs:choice qxg:member="type3" minOccurs="3" maxOccurs="5">
-				<xs:element type="Type1" name="typeA"/>
-				<xs:element type="Type2" name="typeB"/>
+				<xs:element type="Type1" name="TypeA"/>
+				<xs:element type="Type2" name="TypeB"/>
 			</xs:choice>
 			<xs:group ref="Group5" qxg:inherit="true"/>
 		</xs:sequence>
@@ -137,8 +137,8 @@
 		<xs:complexContent>
 			<xs:extension base="Type1">
 				<xs:sequence>
-					<xs:element type="Type1" name="type1"/>
-					<xs:element type="Type2" name="type2"/>
+					<xs:element type="Type1" name="Type1"/>
+					<xs:element type="Type2" name="Type2"/>
 				</xs:sequence>
 				<xs:attributeGroup ref="AttrGroup2" qxg:member="extra"/>
 			</xs:extension>
@@ -150,8 +150,8 @@
 		<xs:complexContent>
 			<xs:extension base="Type1">
 				<xs:sequence>
-					<xs:element type="Type1" name="type1"/>
-					<xs:element type="Type2" name="type2"  qxg:inherit="true"/>
+					<xs:element type="Type1" name="Type1"/>
+					<xs:element type="Type2" name="Type2"  qxg:inherit="true"/>
 				</xs:sequence>
 				<xs:attributeGroup ref="AttrGroup2" qxg:inherit="true"/>
 			</xs:extension>
@@ -163,7 +163,7 @@
 	<!-- Mixed complex type -->
 	<xs:complexType name="Type6" mixed="true" qxg:type="QUuid">
 		<xs:sequence>
-			<xs:element type="SimpleType" name="content" maxOccurs="unbounded" minOccurs="5"/>
+			<xs:element type="SimpleType" name="Content" maxOccurs="unbounded" minOccurs="5"/>
 		</xs:sequence>
 		<xs:attribute name="mem1" type="xs:string"/>
 		<xs:attribute name="mem2" type="xs:integer"/>
