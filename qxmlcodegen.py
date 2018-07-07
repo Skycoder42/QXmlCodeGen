@@ -1086,7 +1086,10 @@ class XmlCodeGenerator:
 			hdr.write("\n\t{\n")
 			# write attribs
 			for member in type_def.members:
-				hdr.write("\t\t{} {};\n".format(member.cppType, member.member))
+				if not member.required and member.default is None:
+					hdr.write("\t\toptional<{}> {};\n".format(member.cppType, member.member))
+				else:
+					hdr.write("\t\t{} {};\n".format(member.cppType, member.member))
 			for member in type_def.member_groups:
 				if not member.inherit:
 					hdr.write("\t\t{} {};\n".format(member.type_key, member.member))
@@ -1129,7 +1132,7 @@ class XmlCodeGenerator:
 
 	def write_hdr_end(self, hdr: TextIOBase):
 		hdr.write("\n\ttemplate <typename T>\n")
-		hdr.write("\tT readOptionalAttrib(QXmlStreamReader &reader, const QString &key) const;\n")
+		hdr.write("\toptional<T> readOptionalAttrib(QXmlStreamReader &reader, const QString &key) const;\n")
 		hdr.write("\ttemplate <typename T>\n")
 		hdr.write("\tT readOptionalAttrib(QXmlStreamReader &reader, const QString &key, const QString &defaultValue) const;\n")
 		hdr.write("\ttemplate <typename T>\n")
@@ -1146,12 +1149,12 @@ class XmlCodeGenerator:
 		hdr.write("};\n\n")
 
 		hdr.write("template <typename T>\n")
-		hdr.write("T {}::readOptionalAttrib(QXmlStreamReader &reader, const QString &key) const\n".format(self.config.className))
+		hdr.write("{}::optional<T> {}::readOptionalAttrib(QXmlStreamReader &reader, const QString &key) const\n".format(self.config.className, self.config.className))
 		hdr.write("{\n")
 		hdr.write("\tif(reader.attributes().hasAttribute(key))\n")
 		hdr.write("\t\treturn QVariant{reader.attributes().value(key).toString()}.template value<T>();\n")
 		hdr.write("\telse\n")
-		hdr.write("\t\treturn T{};\n")
+		hdr.write("\t\treturn optional<T>{};\n")
 		hdr.write("}\n\n")
 
 		hdr.write("template <typename T>\n")

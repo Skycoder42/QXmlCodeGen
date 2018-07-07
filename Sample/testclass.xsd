@@ -14,6 +14,7 @@
 	<qxg:method name="read_test" type="QString">
 		<qxg:param name="transform" type="bool">false</qxg:param>
 	</qxg:method>
+	<qxg:method name="read_test_another" type="int"/>
 	<qxg:method name="read_super" type="Group5" asGroup="true"/>
 
 
@@ -72,7 +73,7 @@
 	<xs:group name="Group2">
 		<xs:choice qxg:member="choice1">
 			<xs:element type="SimpleType" name="Type1"/>
-			<xs:element type="AnotherSimpleType" name="Type2"/>
+			<xs:element type="AnotherSimpleType" name="Type2" qxg:method="read_test_another" qxg:methodType="int"/>
 		</xs:choice>
 	</xs:group>
 
