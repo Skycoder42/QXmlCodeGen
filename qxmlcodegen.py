@@ -237,7 +237,7 @@ class SequenceContentDef(ContentDef):
 				elem.element.write_src_content(src, False, intendent,  return_target="_ok")
 			elif elem.is_single():
 				self.twrite(src, intendent, "if(!hasNext)\n")
-				self.twrite(src, intendent + 1, "throw no_child;\n") # TODO implement
+				self.twrite(src, intendent + 1, "throwNoChild(reader);\n")
 				elem.element.write_src_content(src, False, intendent, target_member="data" if elem.element.inherits() else "", return_target="_ok")
 				self.twrite(src, intendent, "if(_ok) {\n")
 				self.twrite(src, intendent + 1, "hasNext = reader.readNextStartElement();\n")
@@ -261,7 +261,7 @@ class SequenceContentDef(ContentDef):
 				need_newline = elem.element.write_src_content(src, need_newline, intendent + 1)
 				if elem.min > 0:
 					self.twrite(src, intendent + 1, "if(_total < {})\n".format(elem.min))
-					self.twrite(src, intendent + 2, "throw size_error;\n") # TODO implement
+					self.twrite(src, intendent + 2, "throwSizeError(reader, {}, _total);\n".format(elem.min))
 				self.twrite(src, intendent, "}\n")
 			else:
 				self.twrite(src, intendent, "while(hasNext")
@@ -278,7 +278,7 @@ class SequenceContentDef(ContentDef):
 				self.twrite(src, intendent, "}\n")
 				if elem.min > 0:
 					self.twrite(src, intendent, "if(data.{}.size() < {})\n".format(elem.element.member_name(), elem.min))
-					self.twrite(src, intendent + 1, "throw size_error;\n") # TODO implement
+					self.twrite(src, intendent + 1, "throwSizeError(reader, data.{}.size(), {});\n".format(elem.element.member_name(), elem.min))
 		return True
 
 
@@ -553,11 +553,11 @@ class MixedTypeDef(ComplexTypeDef):
 			src.write("\n")
 		if self.baseType != "":
 			src.write("\tif(!reader.isStartElement() || reader.name() != current_element)\n")
-			src.write("\t\tthrow whatever;\n")  # TODO proper exception
+			src.write("\t\tthrowInvalidSimple(reader);\n")
 		src.write("\ttry {\n")
 		src.write("\t\tdata.{} = readContent<{}>(reader);\n".format(self.contentMember, self.contentCppType))
 		src.write("\t\treturn;\n")
-		src.write("\t} catch(...) {\n")  # TODO proper exception
+		src.write("\t} catch(XmlException &) {\n")
 		src.write("\t\tif(!reader.isStartElement())\n")
 		src.write("\t\t\tthrow;\n")
 		src.write("\t}\n")
@@ -914,6 +914,7 @@ class XmlCodeGenerator:
 		hdr.write("#include <QtCore/QString>\n")
 		hdr.write("#include <QtCore/QList>\n")
 		hdr.write("#include <QtCore/QIODevice>\n")
+		hdr.write("#include <QtCore/QException>\n")
 		hdr.write("#include <QtCore/QXmlStreamReader>\n")
 		for include in self.config.includes:
 			if include.local:
@@ -934,6 +935,53 @@ class XmlCodeGenerator:
 		else:
 			hdr.write("\tusing optional = std::optional;\n")
 			hdr.write("\tusing variant = std::variant;\n\n")
+
+		hdr.write("\tclass Exception : public QException\n")
+		hdr.write("\t{\n")
+		hdr.write("\tpublic:\n")
+		hdr.write("\t\tException();\n\n")
+		hdr.write("\t\tQString qWhat() const;\n")
+		hdr.write("\t\tconst char *what() const noexcept final;\n\n")
+		hdr.write("\tprotected:\n")
+		hdr.write("\t\tException(const Exception * const other);\n\n")
+		hdr.write("\t\tvirtual QString createQWhat() const = 0;\n\n")
+		hdr.write("\t\tmutable QByteArray _qWhat;\n")
+		hdr.write("\t};\n\n")
+
+		hdr.write("\tclass FileException : public Exception\n")
+		hdr.write("\t{\n")
+		hdr.write("\tpublic:\n")
+		hdr.write("\t\tFileException(QFileDevice &device);\n\n")
+		hdr.write("\t\tQString filePath() const;\n")
+		hdr.write("\t\tQString errorMessage() const;\n\n")
+		hdr.write("\t\tvoid raise() const override;\n")
+		hdr.write("\t\tQException *clone() const override;\n\n")
+		hdr.write("\tprotected:\n")
+		hdr.write("\t\tFileException(const FileException * const other);\n\n")
+		hdr.write("\t\tQString createQWhat() const override;\n\n")
+		hdr.write("\t\tconst QString _path;\n")
+		hdr.write("\t\tconst QString _error;\n")
+		hdr.write("\t};\n\n")
+
+		hdr.write("\tclass XmlException : public Exception\n")
+		hdr.write("\t{\n")
+		hdr.write("\tpublic:\n")
+		hdr.write("\t\tXmlException(QXmlStreamReader &reader, const QString &customError = {});\n\n")
+		hdr.write("\t\tQString filePath() const;\n")
+		hdr.write("\t\tint line() const;\n")
+		hdr.write("\t\tint column() const;\n")
+		hdr.write("\t\tQString errorMessage() const;\n\n")
+		hdr.write("\t\tvoid raise() const override;\n")
+		hdr.write("\t\tQException *clone() const override;\n\n")
+		hdr.write("\tprotected:\n")
+		hdr.write("\t\tXmlException(const XmlException * const other);\n\n")
+		hdr.write("\t\tQString createQWhat() const override;\n\n")
+		hdr.write("\t\tconst QString _path;\n")
+		hdr.write("\t\tconst int _line;\n")
+		hdr.write("\t\tconst int _column;\n")
+		hdr.write("\t\tconst QString _error;\n")
+		hdr.write("\t};\n\n")
+
 		hdr.write("\t{}();\n".format(self.config.className))
 		hdr.write("\tvirtual ~{}();\n\n".format(self.config.className))
 
@@ -995,9 +1043,10 @@ class XmlCodeGenerator:
 		hdr.write("\tT readContent(QXmlStreamReader &reader) const;\n\n")
 
 		hdr.write("\tvoid checkError(QXmlStreamReader &reader) const;\n")
-		hdr.write("\tQ_NORETURN void throwFile(const QFileDevice &file) const;\n")
-		hdr.write("\tQ_NORETURN void throwReader(QXmlStreamReader &reader, const QString &overwriteError = {}) const;\n")
 		hdr.write("\tQ_NORETURN void throwChild(QXmlStreamReader &reader) const;\n")
+		hdr.write("\tQ_NORETURN void throwNoChild(QXmlStreamReader &reader) const;\n")
+		hdr.write("\tQ_NORETURN void throwInvalidSimple(QXmlStreamReader &reader) const;\n")
+		hdr.write("\tQ_NORETURN void throwSizeError(QXmlStreamReader &reader, int minValue, int currentValue) const;\n")
 		hdr.write("};\n\n")
 
 		hdr.write("template <typename T>\n")
@@ -1024,7 +1073,7 @@ class XmlCodeGenerator:
 		hdr.write("\tif(reader.attributes().hasAttribute(key))\n")
 		hdr.write("\t\treturn QVariant{reader.attributes().value(key).toString()}.template value<T>();\n")
 		hdr.write("\telse\n")
-		hdr.write("\t\tthrowReader(reader, QStringLiteral(\"Required attribute \\\"%1\\\" but was not set\").arg(key));\n")
+		hdr.write("\t\tthrow XmlException{reader, QStringLiteral(\"Required attribute \\\"%1\\\" but was not set\").arg(key)};\n")
 		hdr.write("}\n\n")
 
 		hdr.write("template <typename T>\n")
@@ -1041,8 +1090,10 @@ class XmlCodeGenerator:
 
 	def write_src_begin(self, src: TextIOBase, hdr_path: str):
 		src.write("#include \"{}\"\n".format(os.path.basename(hdr_path)))
-		src.write("#include <QtCore/QFile>\n\n".format(os.path.basename(hdr_path)))
-		src.write("{}::{}() = default;\n\n".format(self.config.className, self.config.className))
+		src.write("#include <QtCore/QFile>\n".format(os.path.basename(hdr_path)))
+		if self.config.ns != "":
+			src.write("using namespace {};\n".format(self.config.ns))
+		src.write("\n{}::{}() = default;\n\n".format(self.config.className, self.config.className))
 		src.write("{}::~{}() = default;\n\n".format(self.config.className, self.config.className))
 
 	def write_src_root(self, src: TextIOBase, root_elements: list):
@@ -1057,7 +1108,7 @@ class XmlCodeGenerator:
 		src.write("\tQ_ASSERT_X(device && device->isReadable(), Q_FUNC_INFO, \"Passed device must be open and readable\"\n")
 		src.write("\tQXmlStreamReader reader{device};\n")
 		src.write("\tif(!reader.readNextStartElement())\n")
-		src.write("\t\tthrowReader(reader);\n\n")
+		src.write("\t\tthrow XmlException{reader};\n\n")
 
 		is_first = True
 		for root in root_elements:
@@ -1080,7 +1131,7 @@ class XmlCodeGenerator:
 		src.write("{\n")
 		src.write("\tQFile xmlFile{path};\n")
 		src.write("\tif(!xmlFile.open(QIODevice::ReadOnly | QIODevice::Text))\n")
-		src.write("\t\tthrowFile(xmlFile);\n")
+		src.write("\t\tthrow FileException{xmlFile};\n")
 		src.write("\treturn readDocument(&xmlFile);\n")
 		src.write("}\n\n")
 
@@ -1120,6 +1171,141 @@ class XmlCodeGenerator:
 			type_def.write_src_content(src, need_newline)
 
 			src.write("}\n\n")
+
+	def write_src_end(self, src: TextIOBase):
+		src.write("void {}::checkError(QXmlStreamReader &reader) const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tif(reader.hasError())\n")
+		src.write("\t\tthrow XmlException{reader};\n")
+		src.write("}\n\n")
+
+		src.write("void {}::throwChild(QXmlStreamReader &reader) const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Unexpected child element: %1\").arg(reader.name()};\n")
+		src.write("}\n\n")
+
+		src.write("void {}::throwNoChild(QXmlStreamReader &reader) const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Unexpected end of element. Expected more child elements\")};\n")
+		src.write("}\n\n")
+
+		src.write("void {}::throwInvalidSimple(QXmlStreamReader &reader) const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Mixed content elements with a base class cannot have the base read any content\")};\n")
+		src.write("}\n\n")
+
+		src.write("void {}::throwSizeError(QXmlStreamReader &reader, int minValue, int currentValue) const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Expected at least %1 child elements, but only found %2\").arg(minValue).arg(currentValue)};\n")
+		src.write("}\n\n\n\n")
+
+		src.write("{}::Exception::Exception() = default;\n\n".format(self.config.className))
+
+		src.write("{}::Exception::Exception(const Exception * const other) :\n".format(self.config.className))
+		src.write("\t_qWhat{other->_qWhat}\n")
+		src.write("{}\n\n")
+
+		src.write("QString {}::Exception::qWhat() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tif(_qWhat.isNull())\n")
+		src.write("\t\t _qWhat = createQWhat().toUtf8();\n")
+		src.write("\treturn QString::fromUtf8(_qWhat);\n")
+		src.write("}\n\n")
+
+		src.write("const char *{}::Exception::what() const noexcept\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tif(_qWhat.isNull())\n")
+		src.write("\t\t _qWhat = createQWhat().toUtf8();\n")
+		src.write("\treturn _qWhat.constData();\n")
+		src.write("}\n\n\n\n")
+
+		src.write("{}::FileException::FileException(QFileDevice &device) :\n".format(self.config.className))
+		src.write("\tException{},\n")
+		src.write("\t_path{device.fileName()},\n")
+		src.write("\t_error{device.errorString()}\n")
+		src.write("{}\n\n")
+
+		src.write("{}::FileException::FileException(const FileException * const other) :\n".format(self.config.className))
+		src.write("\tException{other},\n")
+		src.write("\t_path{other->_path},\n")
+		src.write("\t_error{other->_error}\n")
+		src.write("{}\n\n")
+
+		src.write("QString {}::FileException::filePath() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn _path;\n")
+		src.write("}\n\n")
+
+		src.write("QString {}::FileException::errorMessage() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn _error;\n")
+		src.write("}\n\n")
+
+		src.write("void {}::FileException::raise() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tthrow *this;\n")
+		src.write("}\n\n")
+
+		src.write("QException *{}::FileException::clone() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn new FileException{this};\n")
+		src.write("}\n\n")
+
+		src.write("QString {}::FileException::createQWhat() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn QStringLiteral(\"%1: %2\").arg(_path, _error);\n")
+		src.write("}\n\n\n\n")
+
+		src.write("{}::XmlException::XmlException(QXmlStreamReader &reader, const QString &customError = {{}}) :\n".format(self.config.className))
+		src.write("\tException{},\n")
+		src.write("\t_path{dynamic_cast<QFileDevice*>(reader.device()) ? static_cast<QFileDevice*>(reader.device())->fileName() : QStringLiteral(\"<unknown>\")},\n")
+		src.write("\t_line{reader.lineNumber()},\n")
+		src.write("\t_column{reader.columnNumber()},\n")
+		src.write("\t_error{customError.isNull() ? reader.errorString() : customError}\n")
+		src.write("{}\n\n")
+
+		src.write("{}::XmlException::XmlException(const XmlException * const other) :\n".format(self.config.className))
+		src.write("\tException{other},\n")
+		src.write("\t_path{other->_path},\n")
+		src.write("\t_line{other->_line},\n")
+		src.write("\t_column{other->_column},\n")
+		src.write("\t_error{other->_error}\n")
+		src.write("{}\n\n")
+
+		src.write("QString {}::XmlException::filePath() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn _path;\n")
+		src.write("}\n\n")
+
+		src.write("int {}::XmlException::line() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn _line;\n")
+		src.write("}\n\n")
+
+		src.write("int {}::XmlException::column() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn _column;\n")
+		src.write("}\n\n")
+
+		src.write("QString {}::XmlException::errorMessage() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn _error;\n")
+		src.write("}\n\n")
+
+		src.write("void {}::XmlException::raise() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tthrow *this;\n")
+		src.write("}\n\n")
+
+		src.write("QException *{}::XmlException::clone() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn new XmlException{this};\n")
+		src.write("}\n\n")
+
+		src.write("QString {}::XmlException::createQWhat() const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\treturn QStringLiteral(\"%1:%2:%3: %4\").arg(_path).arg(_line).arg(_column).arg(_error);\n")
+		src.write("}\n")
 
 	def xmlcodegen(self, xsd_path: str, hdr_path: str, src_path: str, verify: bool = True):
 		if verify:
@@ -1164,6 +1350,7 @@ class XmlCodeGenerator:
 			self.write_src_begin(src, hdr_path)
 			self.write_src_root(src, root_elements)
 			self.write_src_types(src, type_defs)
+			self.write_src_end(src)
 
 
 if __name__ == '__main__':
