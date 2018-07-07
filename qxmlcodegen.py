@@ -88,6 +88,27 @@ class QxgConfig:
 			", stdcompat=" + str(self.stdcompat) + "}"
 
 
+class QxgMethod:
+	class Param:
+		name: str = ""
+		type_key: str = ""
+		default: str = ""
+
+		def __repr__(self):
+			return "{}: {} = {}".format(self.name, self.type_key, self.default)
+
+	name: str = ""
+	type_key: str = ""
+	params: list
+	as_group: bool = False
+
+	def __init__(self):
+		self.params = []
+
+	def __repr__(self):
+		return "{}(data: {}, {})".format(self.name, self.type_key, self.params)
+
+
 class ContentDef:
 	def is_inherited(self) -> bool:
 		return False
@@ -100,6 +121,12 @@ class ContentDef:
 
 	def generate_type(self) -> str:
 		raise NotImplementedError()
+
+	def read_method(self) -> str:
+		return "read_{}".format(self.generate_type())
+
+	def read_method_params(self) -> str:
+		return ""
 
 	def member_name(self) -> str:
 		raise NotImplementedError()
@@ -130,11 +157,20 @@ class ContentDef:
 
 
 class TypeContentDef(ContentDef):
+	class MethodInfo:
+		method: str = ""
+		type_key: str = ""
+		params: list
+
+		def __init__(self):
+			self.params = []
+
 	is_group: bool = False
 	name: str = ""
 	member: str = ""
 	type_key: str = ""
 	inherit: bool = False
+	method: MethodInfo = None
 
 	def __repr__(self):
 		return self.name + "[" + self.type_key + "] " + \
@@ -150,7 +186,24 @@ class TypeContentDef(ContentDef):
 		return self.is_group
 
 	def generate_type(self) -> str:
-		return self.type_key
+		if self.method is None:
+			return self.type_key
+		else:
+			return self.method.type_key
+
+	def read_method(self) -> str:
+		if self.method is None:
+			return super(TypeContentDef, self).read_method()
+		else:
+			return self.method.method
+
+	def read_method_params(self) -> str:
+		if self.method is None:
+			return super(TypeContentDef, self).read_method_params()
+		elif len(self.method.params) == 0:
+			return ""
+		else:
+			return ", " + ", ".join(self.method.params)
 
 	def member_name(self) -> str:
 		return self.member
@@ -164,16 +217,16 @@ class TypeContentDef(ContentDef):
 
 		if self.is_group:
 			if self.inherit:
-				self.twrite(src, intendent, "hasNext = read_{}(reader, data, hasNext);\n".format(self.type_key))
+				self.twrite(src, intendent, "hasNext = {}(reader, data, hasNext);\n".format(self.read_method()))
 			else:
-				self.twrite(src, intendent, "hasNext = read_{}(reader, data.{}, hasNext);\n".format(self.type_key, self.member))
+				self.twrite(src, intendent, "hasNext = {}(reader, data.{}, hasNext{});\n".format(self.read_method(), self.member, self.read_method_params()))
 		else:
 			if target_member == "":
 				target_member = "data." + self.member
 			elif target_as_format:
 				target_member = target_member.format(self.member)
 			self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\") {{\n".format(self.name))
-			self.twrite(src, intendent + 1, "read_{}(reader, {});\n".format(self.type_key, target_member))
+			self.twrite(src, intendent + 1, "{}(reader, {}{});\n".format(self.read_method(), target_member, self.read_method_params()))
 			self.write_return(src, intendent + 1, return_target, True)
 			self.twrite(src, intendent, "} else\n")
 			self.write_return(src, intendent + 1, return_target, False)
@@ -302,7 +355,7 @@ class ChoiceContentDef(ContentDef):
 	def write_hdr_content(self, hdr: TextIOBase):
 		if self.unordered:
 			for choice in self.choices:
-				hdr.write("\t\tQList<{}> {};\n".format(choice.type_key, choice.member))
+				hdr.write("\t\tQList<{}> {};\n".format(choice.generate_type(), choice.member))
 		else:
 			super(ChoiceContentDef, self).write_hdr_content(hdr)
 
@@ -324,7 +377,7 @@ class ChoiceContentDef(ContentDef):
 					self.twrite(src, intendent + 1, "} else if")
 				src.write("(reader.name() == QStringLiteral(\"{}\") {{\n".format(choice.name))
 				self.twrite(src, intendent + 2, "{} _element;\n".format(choice.generate_type()))
-				self.twrite(src, intendent + 2, "read_{}(reader, _element);\n".format(choice.type_key))
+				self.twrite(src, intendent + 2, "{}(reader, _element{});\n".format(choice.read_method(), choice.read_method_params()))
 				self.write_return(src, intendent + 2, return_target, True)
 				self.twrite(src, intendent + 2, "data.{}.append(std::move(_element));\n".format(choice.member_name()))
 
@@ -344,8 +397,8 @@ class ChoiceContentDef(ContentDef):
 				else:
 					self.twrite(src, intendent, "} else if")
 				src.write("(reader.name() == QStringLiteral(\"{}\") {{\n".format(choice.name))
-				self.twrite(src, intendent + 1, "{} = {}{{}};\n".format(target_member, choice.type_key))
-				self.twrite(src, intendent + 1, "read_{}(reader, std::get<{}>({}));\n".format(choice.type_key, choice.type_key, target_member))
+				self.twrite(src, intendent + 1, "{} = {}{{}};\n".format(target_member, choice.generate_type()))
+				self.twrite(src, intendent + 1, "{}(reader, std::get<{}>({}){});\n".format(choice.read_method(), choice.generate_type(), target_member, choice.read_method_params()))
 				self.write_return(src, intendent + 1, return_target, True)
 			self.twrite(src, intendent, "} else\n")
 			self.write_return(src, intendent + 1, return_target, False)
@@ -633,6 +686,10 @@ class XmlCodeGenerator:
 	}
 
 	config: QxgConfig
+	methods: list
+
+	def __init__(self):
+		self.methods = []
 
 	def ns_replace(self, name: str) -> str:
 		ns_replace_map = {
@@ -668,6 +725,19 @@ class XmlCodeGenerator:
 			if "local" in child.attrib:
 				include.local = child.attrib["local"].lower() == "true"
 			self.config.includes.append(include)
+
+	def read_method(self, node: Element) -> QxgMethod:
+		method = QxgMethod()
+		method.name = node.attrib["name"]
+		method.type_key = node.attrib["type"]
+		method.as_group = node.attrib["asGroup"].lower() == "true" if "asGroup" in node.attrib else False
+		for child in node.findall("qxg:param", namespaces=self.ns_map):
+			param = QxgMethod.Param()
+			param.name = child.attrib["name"]
+			param.type_key = child.attrib["type"]
+			param.default = child.text
+			method.params.append(param)
+		return method
 
 	def read_qxg(self, node: Element, attr: str, default: str, map_type: bool = False) -> str:
 		rep_attr = self.ns_replace_inv("qxg:" + attr)
@@ -771,6 +841,16 @@ class XmlCodeGenerator:
 			content.type_key = node.attrib["ref"]
 		else:
 			raise Exception("UNREACHABLE")
+
+		method_mem = self.read_qxg(node, "method", "")
+		if method_mem != "":
+			if inherit_mem != "":
+				raise Exception("You cannot specify qxg:method on an element that already has qxg:inherit set to true")
+			content.method = TypeContentDef.MethodInfo()
+			content.method.method = method_mem
+			content.method.type_key = self.read_qxg(node, "methodType", content.type_key)
+			for child in node.findall("qxg:param", namespaces=self.ns_map):
+				content.method.params.append(child.text)
 
 		return content
 
@@ -1016,20 +1096,36 @@ class XmlCodeGenerator:
 			hdr.write("\t};\n\n")
 
 	def write_hdr_methods(self, hdr: TextIOBase, type_defs: list, root_elements: list):
-		type_args = root_elements[0].type_key if len(root_elements) == 1 else "variant<{}>".format(", ".join(map(lambda t: t.type_key, root_elements)))
+		type_args = root_elements[0].generate_type() if len(root_elements) == 1 else "variant<{}>".format(", ".join(map(lambda t: t.generate_type(), root_elements)))
 		hdr.write("\tvirtual {} readDocument(QIODevice *device) const;\n".format(type_args))
 		hdr.write("\tvirtual {} readDocument(const QString &path) const;\n\n".format(type_args))
 
 		if self.config.visibility is QxgConfig.Visibility.Protected:
 			hdr.write("protected:\n")
 
+		for method in self.methods:
+			if method.as_group:
+				hdr.write("\tvirtual bool ")
+			else:
+				hdr.write("\tvirtual void ")
+			hdr.write("{}(QXmlStreamReader &reader, {} &data".format(method.name, method.type_key))
+			if method.as_group:
+				hdr.write(", bool hasNext")
+			for param in method.params:
+				hdr.write(", {} {}".format(param.type_key, param.name))
+				if param.default != "":
+					hdr.write(" = {}".format(param.default))
+			hdr.write(") = 0;\n")
+		if len(self.methods) > 0:
+			hdr.write("\n")
+
 		for type_def in type_defs:
 			if isinstance(type_def, GroupTypeDef):
-				hdr.write("\tvirtual bool read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const;\n".format(type_def.name, type_def.name))
+				hdr.write("\tvirtual bool read_{}(QXmlStreamReader &reader, {} &data, bool hasNext);\n".format(type_def.name, type_def.name))
 			elif isinstance(type_def, ComplexTypeDef):
-				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data, bool keepElementOpen = false) const;\n".format(type_def.name, type_def.name))
+				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data, bool keepElementOpen = false);\n".format(type_def.name, type_def.name))
 			else:
-				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data) const;\n".format(type_def.name, type_def.name))
+				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data);\n".format(type_def.name, type_def.name))
 
 	def write_hdr_end(self, hdr: TextIOBase):
 		hdr.write("\n\ttemplate <typename T>\n")
@@ -1098,9 +1194,9 @@ class XmlCodeGenerator:
 
 	def write_src_root(self, src: TextIOBase, root_elements: list):
 		if len(root_elements) == 1:
-			type_args = root_elements[0].type_key
+			type_args = root_elements[0].generate_type()
 		else:
-			type_args = "variant<{}::{}>".format(self.config.className, ", {}::".format(self.config.className).join(map(lambda t: t.type_key, root_elements)))
+			type_args = "variant<{}::{}>".format(self.config.className, ", {}::".format(self.config.className).join(map(lambda t: t.generate_type(), root_elements)))
 
 		# device method
 		src.write("{}::{} {}::readDocument(QIODevice *device) const\n".format(self.config.className, type_args, self.config.className))
@@ -1118,8 +1214,8 @@ class XmlCodeGenerator:
 			else:
 				src.write(" else ")
 			src.write("if(reader.name() == QStringLiteral(\"{}\")) {{\n".format(root.name))
-			src.write("\t\t{} data;\n".format(root.type_key))
-			src.write("\t\tread_{}(reader, data);\n".format(root.type_key))
+			src.write("\t\t{} data;\n".format(root.generate_type()))
+			src.write("\t\t{}(reader, data{});\n".format(root.read_method(), root.read_method_params()))
 			src.write("\t\treturn data;\n")
 			src.write("\t}")
 		src.write(" else\n")
@@ -1138,11 +1234,11 @@ class XmlCodeGenerator:
 	def write_src_types(self, src: TextIOBase, type_defs: list):
 		for type_def in type_defs:
 			if isinstance(type_def, GroupTypeDef):
-				src.write("bool {}::read_{}(QXmlStreamReader &reader, {} &data, bool hasNext) const\n".format(self.config.className, type_def.name, type_def.name))
+				src.write("bool {}::read_{}(QXmlStreamReader &reader, {} &data, bool hasNext)\n".format(self.config.className, type_def.name, type_def.name))
 			elif isinstance(type_def, ComplexTypeDef):
-				src.write("void {}::read_{}(QXmlStreamReader &reader, {} &data, bool keepElementOpen) const;\n".format(self.config.className, type_def.name, type_def.name))
+				src.write("void {}::read_{}(QXmlStreamReader &reader, {} &data, bool keepElementOpen)\n".format(self.config.className, type_def.name, type_def.name))
 			else:
-				src.write("void {}::read_{}(QXmlStreamReader &reader, {} &data) const\n".format(self.config.className, type_def.name, type_def.name))
+				src.write("void {}::read_{}(QXmlStreamReader &reader, {} &data)\n".format(self.config.className, type_def.name, type_def.name))
 			src.write("{\n")
 
 			# write attribs
@@ -1335,6 +1431,8 @@ class XmlCodeGenerator:
 				type_defs.append(self.read_group(child))
 			elif xtag == "xs:attributeGroup":
 				type_defs.append(self.read_attr_group(child))
+			elif xtag == "qxg:method":
+				self.methods.append(self.read_method(child))
 			elif xtag[0:4] == "qxg:":
 				pass
 			else:
