@@ -10,10 +10,12 @@ CONFIG -= app_bundle
 DEFINES += QT_DEPRECATED_WARNINGS
 
 SOURCES += \
-		main.cpp
+		main.cpp \
+    testreader.cpp
 
 XML_SCHEMA_DEFINITIONS += \
 	testclass.xsd
 
 HEADERS += \
-	mytype.h
+	mytype.h \
+    testreader.h

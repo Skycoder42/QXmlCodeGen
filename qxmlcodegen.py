@@ -1022,6 +1022,7 @@ class XmlCodeGenerator:
 
 		hdr.write("class {}\n".format(self.config.prefix + " " + self.config.className if self.config.prefix != "" else self.config.className))
 		hdr.write("{\n")
+		hdr.write("\tQ_DISABLE_COPY({})\n".format(self.config.className))
 		hdr.write("public:\n")
 		if self.config.stdcompat:
 			hdr.write("\ttemplate <typename... TArgs>\n")
