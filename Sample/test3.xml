@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RootString xmlns="https://skycoder42.de/schemes/Sample"
+			mem1="Hello World">
+	<Content unit="riddles">3</Content>
+	<Content unit="sins">7</Content>
+	<Content unit="laws" faction=".7">13 <Unit>Elements</Unit></Content>
+	<Content unit="trees" default="42">42</Content>
+	<Content unit="devils" id="550e8400-e29b-11d4-a716-446655440000">666</Content>
+	<Content unit="roots">2</Content>
+</RootString>

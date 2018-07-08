@@ -342,7 +342,7 @@ class SequenceContentDef(ContentDef):
 				self.twrite(src, intendent, "}\n")
 				if elem.min > 0:
 					self.twrite(src, intendent, "if(data.{}.size() < {})\n".format(elem.element.member_name(), elem.min))
-					self.twrite(src, intendent + 1, "throwSizeError(reader, data.{}.size(), {});\n".format(elem.element.member_name(), elem.min))
+					self.twrite(src, intendent + 1, "throwSizeError(reader, {}, data.{}.size());\n".format(elem.min, elem.element.member_name()))
 		return True
 
 

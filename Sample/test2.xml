@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RootString xmlns="https://skycoder42.de/schemes/Sample"
+			mem1="Hello World">
+	<Content unit="riddles">3</Content>
+</RootString>
