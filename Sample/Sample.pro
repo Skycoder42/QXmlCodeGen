@@ -2,7 +2,7 @@ TEMPLATE = app
 
 QT -= gui
 
-CONFIG += c++11 console
+CONFIG += c++1z console skip_xsd_verify
 CONFIG -= app_bundle
 
 !include(../qxmlcodegen.pri):error(qxmlcodegen.pri missing)
@@ -14,3 +14,6 @@ SOURCES += \
 
 XML_SCHEMA_DEFINITIONS += \
 	testclass.xsd
+
+HEADERS += \
+	mytype.h

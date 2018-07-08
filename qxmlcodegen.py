@@ -25,7 +25,7 @@ def xml_verify(xsd_path: str, required: bool=False):
 			raise
 
 	xslt_clear = etree.XML("""
-	<xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">    
+	<xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 		<xsl:template match="*[namespace-uri()='https://skycoder42.de/QXmlCodeGen']" priority="1"/>
 		<xsl:template match="@*[namespace-uri()='https://skycoder42.de/QXmlCodeGen']" priority="1"/>
 		<xsl:template match="@* | node()">
@@ -215,21 +215,23 @@ class TypeContentDef(ContentDef):
 		if need_newline:
 			src.write("\n")
 
+		if target_member == "":
+			target_member = "data." + self.member
+		elif target_as_format:
+			target_member = target_member.format(self.member)
+
 		if self.is_group:
 			if self.inherit:
 				self.twrite(src, intendent, "hasNext = {}(reader, data, hasNext);\n".format(self.read_method()))
 			else:
-				self.twrite(src, intendent, "hasNext = {}(reader, data.{}, hasNext{});\n".format(self.read_method(), self.member, self.read_method_params()))
+				self.twrite(src, intendent, "hasNext = {}(reader, {}, hasNext{});\n".format(self.read_method(), target_member, self.read_method_params()))
 		else:
-			if target_member == "":
-				target_member = "data." + self.member
-			elif target_as_format:
-				target_member = target_member.format(self.member)
-			self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\") {{\n".format(self.name))
+			self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\")) {{\n".format(self.name))
 			self.twrite(src, intendent + 1, "{}(reader, {}{});\n".format(self.read_method(), target_member, self.read_method_params()))
 			self.write_return(src, intendent + 1, return_target, True)
 			self.twrite(src, intendent, "} else\n")
 			self.write_return(src, intendent + 1, return_target, False)
+
 		return True
 
 
@@ -286,8 +288,15 @@ class SequenceContentDef(ContentDef):
 
 		for elem in self.elements:
 			src.write("\n")
-			if elem.element.is_group_type() or isinstance(elem.element, AllContentDef):
+			if (elem.element.is_group_type() and elem.is_single()) or isinstance(elem.element, AllContentDef):
 				elem.element.write_src_content(src, False, intendent,  return_target="_ok")
+			elif elem.element.is_group_type():
+				self.twrite(src, intendent, "data.{}.reserve({});\n".format(elem.element.member_name(), elem.max))
+				self.twrite(src, intendent, "for(auto i = 0; i < {}; i++) {{\n".format(elem.max))
+				self.twrite(src, intendent + 1, "{} _element;\n".format(elem.element.generate_type()))
+				elem.element.write_src_content(src, False, intendent + 1, target_member="_element", return_target="_ok")
+				self.twrite(src, intendent + 1, "data.{}.append(std::move(_element));\n".format(elem.element.member_name()))
+				self.twrite(src, intendent, "}\n")
 			elif elem.is_single():
 				self.twrite(src, intendent, "if(!hasNext)\n")
 				self.twrite(src, intendent + 1, "throwNoChild(reader);\n")
@@ -317,6 +326,8 @@ class SequenceContentDef(ContentDef):
 					self.twrite(src, intendent + 2, "throwSizeError(reader, {}, _total);\n".format(elem.min))
 				self.twrite(src, intendent, "}\n")
 			else:
+				if elem.min == elem.max:
+					self.twrite(src, intendent, "data.{}.reserve({});\n".format(elem.element.member_name(), elem.max))
 				self.twrite(src, intendent, "while(hasNext")
 				if elem.max != -1:
 					src.write(" && data.{}.size() < {}".format(elem.element.member_name(), elem.max))
@@ -375,7 +386,7 @@ class ChoiceContentDef(ContentDef):
 					self.twrite(src, intendent + 1, "if")
 				else:
 					self.twrite(src, intendent + 1, "} else if")
-				src.write("(reader.name() == QStringLiteral(\"{}\") {{\n".format(choice.name))
+				src.write("(reader.name() == QStringLiteral(\"{}\")) {{\n".format(choice.name))
 				self.twrite(src, intendent + 2, "{} _element;\n".format(choice.generate_type()))
 				self.twrite(src, intendent + 2, "{}(reader, _element{});\n".format(choice.read_method(), choice.read_method_params()))
 				self.write_return(src, intendent + 2, return_target, True)
@@ -396,7 +407,7 @@ class ChoiceContentDef(ContentDef):
 					self.twrite(src, intendent, "if")
 				else:
 					self.twrite(src, intendent, "} else if")
-				src.write("(reader.name() == QStringLiteral(\"{}\") {{\n".format(choice.name))
+				src.write("(reader.name() == QStringLiteral(\"{}\")) {{\n".format(choice.name))
 				self.twrite(src, intendent + 1, "{} = {}{{}};\n".format(target_member, choice.generate_type()))
 				self.twrite(src, intendent + 1, "{}(reader, std::get<{}>({}){});\n".format(choice.read_method(), choice.generate_type(), target_member, choice.read_method_params()))
 				self.write_return(src, intendent + 1, return_target, True)
@@ -447,7 +458,7 @@ class AllContentDef(ContentDef):
 				self.twrite(src, intendent + 2, "{} _element_{};\n".format(elem.element.generate_type(), cnt))
 				elem.element.write_src_content(src, False, intendent + 2, target_member="_element_{}".format(cnt), return_target="_ok")
 				self.twrite(src, intendent + 2, "if(_ok) {\n")
-				self.twrite(src, intendent + 3, "if(_usedElements.contains({})\n".format(cnt))
+				self.twrite(src, intendent + 3, "if(_usedElements.contains({}))\n".format(cnt))
 				self.twrite(src, intendent + 4, "throwChild(reader);\n")
 				self.twrite(src, intendent + 3, "_usedElements.insert({});\n".format(cnt))
 				self.twrite(src, intendent + 3, "data.{} = std::move(_element_{});\n".format(elem.element.member_name(), cnt))
@@ -458,7 +469,7 @@ class AllContentDef(ContentDef):
 			else:
 				elem.element.write_src_content(src, False, intendent + 2, return_target="_ok")
 				self.twrite(src, intendent + 2, "if(_ok) {\n")
-				self.twrite(src, intendent + 3, "if(_usedElements.contains({})\n".format(cnt))
+				self.twrite(src, intendent + 3, "if(_usedElements.contains({}))\n".format(cnt))
 				self.twrite(src, intendent + 4, "throwChild(reader);\n")
 				self.twrite(src, intendent + 3, "_usedElements.insert({});\n".format(cnt))
 				self.twrite(src, intendent + 3, "hasNext = reader.readNextStartElement();\n")
@@ -471,8 +482,8 @@ class AllContentDef(ContentDef):
 		src.write("\n")
 		self.twrite(src, intendent + 2, "throwChild(reader);\n")
 		self.twrite(src, intendent + 1, "}\n")
-		self.twrite(src, intendent + 1, "if(!_usedElements.contains(QSet<int> {{{}}})\n".format(", ".join(map(str, req_list))))
-		self.twrite(src, intendent + 2, "throw all_not_complete_error;\n")
+		self.twrite(src, intendent + 1, "if(!_usedElements.contains(QSet<int> {{{}}}))\n".format(", ".join(map(str, req_list))))
+		self.twrite(src, intendent + 2, "throwNoChild(reader);\n")
 		self.twrite(src, intendent, "}\n")
 
 		return True
@@ -568,9 +579,9 @@ class ComplexTypeDef(TypeDef):
 			if need_newline:
 				src.write("\n")
 			if self.baseType != "":
-				src.write("\thasNext = reader.isStartElement();\n")
+				src.write("\tauto hasNext = reader.isStartElement();\n")
 			else:
-				src.write("\thasNext = reader.readNextStartElement();\n")
+				src.write("\tauto hasNext = reader.readNextStartElement();\n")
 			need_newline = self.content.write_src_content(src, False, 1)
 			if need_newline:
 				src.write("\n")
@@ -598,7 +609,7 @@ class MixedTypeDef(ComplexTypeDef):
 			if need_newline:
 				src.write("\n")
 			need_newline = True
-			src.write("\tcurrent_element = reader.name().toString();\n")
+			src.write("\tauto current_element = reader.name().toString();\n")
 			src.write("\tread_{}(reader, data, true);\n".format(self.baseType))
 
 		# write simple content
@@ -619,7 +630,7 @@ class MixedTypeDef(ComplexTypeDef):
 		if self.content is not None:
 			if need_newline:
 				src.write("\n")
-			src.write("\thasNext = true;\n")
+			src.write("\tauto hasNext = true;\n")
 			need_newline = self.content.write_src_content(src, False, 1)
 			if need_newline:
 				src.write("\n")
@@ -768,6 +779,8 @@ class XmlCodeGenerator:
 			elif nstag == "xs:all":
 				raise Exception("An xs:all within a xs:sequence is not supported. Make the inner xs:all a xs:group")
 			elif nstag == "xs:element" or nstag == "xs:group":
+				if nstag == "xs:group" and elem.min != elem.max:
+					raise Exception("xs:group elements can only appear with a fixed amount within a sequence (i.e. min == max)")
 				elem.element = self.read_type_content(child, allow_inherit=elem.is_single())
 			else:
 				raise Exception("Unsupported element {} within a xs:sequence".format(nstag))
@@ -993,9 +1006,10 @@ class XmlCodeGenerator:
 
 		hdr.write("#include <QtCore/QString>\n")
 		hdr.write("#include <QtCore/QList>\n")
-		hdr.write("#include <QtCore/QIODevice>\n")
+		hdr.write("#include <QtCore/QFileDevice>\n")
 		hdr.write("#include <QtCore/QException>\n")
 		hdr.write("#include <QtCore/QXmlStreamReader>\n")
+		hdr.write("#include <QtCore/QVariant>\n")
 		for include in self.config.includes:
 			if include.local:
 				hdr.write("#include \"{}\"\n".format(include.include))
@@ -1010,11 +1024,15 @@ class XmlCodeGenerator:
 		hdr.write("{\n")
 		hdr.write("public:\n")
 		if self.config.stdcompat:
-			hdr.write("\tusing optional = nonstd::optional;\n")
-			hdr.write("\tusing variant = nonstd::variant;\n\n")
+			hdr.write("\ttemplate <typename... TArgs>\n")
+			hdr.write("\tusing optional = nonstd::optional<TArgs...>;\n")
+			hdr.write("\ttemplate <typename... TArgs>\n")
+			hdr.write("\tusing variant = nonstd::variant<TArgs...>;\n\n")
 		else:
-			hdr.write("\tusing optional = std::optional;\n")
-			hdr.write("\tusing variant = std::variant;\n\n")
+			hdr.write("\ttemplate <typename... TArgs>\n")
+			hdr.write("\tusing optional = std::optional<TArgs...>;\n")
+			hdr.write("\ttemplate <typename... TArgs>\n")
+			hdr.write("\tusing variant = std::variant<TArgs...>;\n\n")
 
 		hdr.write("\tclass Exception : public QException\n")
 		hdr.write("\t{\n")
@@ -1048,8 +1066,8 @@ class XmlCodeGenerator:
 		hdr.write("\tpublic:\n")
 		hdr.write("\t\tXmlException(QXmlStreamReader &reader, const QString &customError = {});\n\n")
 		hdr.write("\t\tQString filePath() const;\n")
-		hdr.write("\t\tint line() const;\n")
-		hdr.write("\t\tint column() const;\n")
+		hdr.write("\t\tqint64 line() const;\n")
+		hdr.write("\t\tqint64 column() const;\n")
 		hdr.write("\t\tQString errorMessage() const;\n\n")
 		hdr.write("\t\tvoid raise() const override;\n")
 		hdr.write("\t\tQException *clone() const override;\n\n")
@@ -1057,8 +1075,8 @@ class XmlCodeGenerator:
 		hdr.write("\t\tXmlException(const XmlException * const other);\n\n")
 		hdr.write("\t\tQString createQWhat() const override;\n\n")
 		hdr.write("\t\tconst QString _path;\n")
-		hdr.write("\t\tconst int _line;\n")
-		hdr.write("\t\tconst int _column;\n")
+		hdr.write("\t\tconst qint64 _line;\n")
+		hdr.write("\t\tconst qint64 _column;\n")
 		hdr.write("\t\tconst QString _error;\n")
 		hdr.write("\t};\n\n")
 
@@ -1100,8 +1118,8 @@ class XmlCodeGenerator:
 
 	def write_hdr_methods(self, hdr: TextIOBase, type_defs: list, root_elements: list):
 		type_args = root_elements[0].generate_type() if len(root_elements) == 1 else "variant<{}>".format(", ".join(map(lambda t: t.generate_type(), root_elements)))
-		hdr.write("\tvirtual {} readDocument(QIODevice *device) const;\n".format(type_args))
-		hdr.write("\tvirtual {} readDocument(const QString &path) const;\n\n".format(type_args))
+		hdr.write("\tvirtual {} readDocument(QIODevice *device);\n".format(type_args))
+		hdr.write("\tvirtual {} readDocument(const QString &path);\n\n".format(type_args))
 
 		if self.config.visibility is QxgConfig.Visibility.Protected:
 			hdr.write("protected:\n")
@@ -1190,6 +1208,7 @@ class XmlCodeGenerator:
 	def write_src_begin(self, src: TextIOBase, hdr_path: str):
 		src.write("#include \"{}\"\n".format(os.path.basename(hdr_path)))
 		src.write("#include <QtCore/QFile>\n".format(os.path.basename(hdr_path)))
+		src.write("#include <QtCore/QSet>\n".format(os.path.basename(hdr_path)))
 		if self.config.ns != "":
 			src.write("using namespace {};\n".format(self.config.ns))
 		src.write("\n{}::{}() = default;\n\n".format(self.config.className, self.config.className))
@@ -1202,9 +1221,9 @@ class XmlCodeGenerator:
 			type_args = "variant<{}::{}>".format(self.config.className, ", {}::".format(self.config.className).join(map(lambda t: t.generate_type(), root_elements)))
 
 		# device method
-		src.write("{}::{} {}::readDocument(QIODevice *device) const\n".format(self.config.className, type_args, self.config.className))
+		src.write("{}::{} {}::readDocument(QIODevice *device)\n".format(self.config.className, type_args, self.config.className))
 		src.write("{\n")
-		src.write("\tQ_ASSERT_X(device && device->isReadable(), Q_FUNC_INFO, \"Passed device must be open and readable\"\n")
+		src.write("\tQ_ASSERT_X(device && device->isReadable(), Q_FUNC_INFO, \"Passed device must be open and readable\");\n")
 		src.write("\tQXmlStreamReader reader{device};\n")
 		src.write("\tif(!reader.readNextStartElement())\n")
 		src.write("\t\tthrow XmlException{reader};\n\n")
@@ -1226,7 +1245,7 @@ class XmlCodeGenerator:
 		src.write("}\n\n")
 
 		# file method
-		src.write("{}::{} {}::readDocument(const QString &path) const\n".format(self.config.className, type_args, self.config.className))
+		src.write("{}::{} {}::readDocument(const QString &path)\n".format(self.config.className, type_args, self.config.className))
 		src.write("{\n")
 		src.write("\tQFile xmlFile{path};\n")
 		src.write("\tif(!xmlFile.open(QIODevice::ReadOnly | QIODevice::Text))\n")
@@ -1280,7 +1299,7 @@ class XmlCodeGenerator:
 
 		src.write("void {}::throwChild(QXmlStreamReader &reader) const\n".format(self.config.className))
 		src.write("{\n")
-		src.write("\tthrow XmlException{reader, QStringLiteral(\"Unexpected child element: %1\").arg(reader.name()};\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Unexpected child element: %1\").arg(reader.name())};\n")
 		src.write("}\n\n")
 
 		src.write("void {}::throwNoChild(QXmlStreamReader &reader) const\n".format(self.config.className))
@@ -1355,7 +1374,7 @@ class XmlCodeGenerator:
 		src.write("\treturn QStringLiteral(\"%1: %2\").arg(_path, _error);\n")
 		src.write("}\n\n\n\n")
 
-		src.write("{}::XmlException::XmlException(QXmlStreamReader &reader, const QString &customError = {{}}) :\n".format(self.config.className))
+		src.write("{}::XmlException::XmlException(QXmlStreamReader &reader, const QString &customError) :\n".format(self.config.className))
 		src.write("\tException{},\n")
 		src.write("\t_path{dynamic_cast<QFileDevice*>(reader.device()) ? static_cast<QFileDevice*>(reader.device())->fileName() : QStringLiteral(\"<unknown>\")},\n")
 		src.write("\t_line{reader.lineNumber()},\n")
@@ -1376,12 +1395,12 @@ class XmlCodeGenerator:
 		src.write("\treturn _path;\n")
 		src.write("}\n\n")
 
-		src.write("int {}::XmlException::line() const\n".format(self.config.className))
+		src.write("qint64 {}::XmlException::line() const\n".format(self.config.className))
 		src.write("{\n")
 		src.write("\treturn _line;\n")
 		src.write("}\n\n")
 
-		src.write("int {}::XmlException::column() const\n".format(self.config.className))
+		src.write("qint64 {}::XmlException::column() const\n".format(self.config.className))
 		src.write("{\n")
 		src.write("\treturn _column;\n")
 		src.write("}\n\n")

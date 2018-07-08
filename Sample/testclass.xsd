@@ -5,13 +5,14 @@
 				prefix="Q_TEST_EXPORT"
 				ns="TestNamespace"
 				visibility="protected"
-				stdcompat="true">
+				stdcompat="false">
 		<qxg:include>QtCore/QDateTime</qxg:include>
 		<qxg:include>QtCore/QAtomicInt</qxg:include>
+		<qxg:include>QtCore/QUuid</qxg:include>
 		<qxg:include local="true">mytype.h</qxg:include>
 	</qxg:config>
 
-	<qxg:method name="read_test" type="QString">
+	<qxg:method name="read_test" type="StringWrapper">
 		<qxg:param name="transform" type="bool">false</qxg:param>
 	</qxg:method>
 	<qxg:method name="read_test_another" type="int"/>
@@ -35,7 +36,14 @@
 	<!-- Simple type with cpp member name and type -->
 	<xs:complexType name="AnotherSimpleType">
 		<xs:simpleContent>
-			<xs:extension base="xs:int" qxg:type="QAtomicInt" qxg:member="value"/>
+			<xs:extension base="xs:int" qxg:type="QVariant" qxg:member="value"/>
+		</xs:simpleContent>
+	</xs:complexType>
+
+	<!-- Simple type with cpp member name and type -->
+	<xs:complexType name="StringWrapper">
+		<xs:simpleContent>
+			<xs:extension base="xs:string"/>
 		</xs:simpleContent>
 	</xs:complexType>
 
@@ -89,8 +97,8 @@
 	<xs:group name="Group4">
 		<xs:sequence>
 			<xs:group ref="Group1" qxg:inherit="true"/>
-			<xs:group ref="Group2" qxg:member="group2" minOccurs="0"/>
-			<xs:group ref="Group3" qxg:member="group3" maxOccurs="unbounded" minOccurs="0"/>
+			<xs:group ref="Group2" qxg:member="group2"/>
+			<xs:group ref="Group3" qxg:member="group3" maxOccurs="3" minOccurs="3"/>
 		</xs:sequence>
 	</xs:group>
 
@@ -125,15 +133,15 @@
 	<!-- Basic complex type with real content -->
 	<xs:complexType name="Type3">
 		<xs:sequence>
-			<xs:element type="Type1" name="Type1" qxg:inherit="true"/>
-			<xs:element type="Type2" name="Type2"/>
-			<xs:choice qxg:member="type3" minOccurs="3" maxOccurs="5">
+			<xs:element type="Type1" name="Type4" qxg:inherit="true"/>
+			<xs:element type="Type2" name="Type5"/>
+			<xs:choice qxg:member="type6" minOccurs="3" maxOccurs="5">
 				<xs:element type="Type1" name="TypeA"/>
 				<xs:element type="Type2" name="TypeB"/>
 			</xs:choice>
 			<xs:group ref="Group4" qxg:inherit="true"/>
 			<xs:group ref="Group5" qxg:member="superGroup" qxg:method="read_super"/>
-			<xs:element type="SimpleType" name="FinalType" qxg:method="read_test" qxg:methodType="QString">
+			<xs:element type="SimpleType" name="FinalType" qxg:method="read_test" qxg:methodType="StringWrapper">
 				<qxg:param>true</qxg:param>
 			</xs:element>
 		</xs:sequence>
@@ -159,8 +167,8 @@
 		<xs:complexContent>
 			<xs:extension base="Type1">
 				<xs:sequence>
-					<xs:element type="Type1" name="Type1"/>
-					<xs:element type="Type2" name="Type2"  qxg:inherit="true"/>
+					<xs:element type="Type1" name="Type4"/>
+					<xs:element type="Type2" name="Type5"  qxg:inherit="true"/>
 				</xs:sequence>
 				<xs:attributeGroup ref="AttrGroup2" qxg:inherit="true"/>
 			</xs:extension>
@@ -190,7 +198,7 @@
 
 
 	<!-- allowed root elements -->
-	<xs:element name="RootString" type="Type1" qxg:method="read_test" qxg:methodType="QString"/>
+	<xs:element name="RootString" type="Type1" qxg:method="read_test" qxg:methodType="StringWrapper"/>
 	<xs:element name="Root1" type="Type3"/>
 	<xs:element name="Root2" type="Type4"/>
 	<xs:element name="Root3" type="Type5"/>
