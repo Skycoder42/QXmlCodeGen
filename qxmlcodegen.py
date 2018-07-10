@@ -211,14 +211,12 @@ class TypeContentDef(ContentDef):
 	def xml_name(self) -> str:
 		return self.name
 
-	def write_src_content(self, src: TextIOBase, need_newline: bool, intendent: int, target_member: str = "", target_as_format: bool = False, return_target: str = "") -> bool:
+	def write_src_content(self, src: TextIOBase, need_newline: bool, intendent: int, target_member: str = "", return_target: str = "") -> bool:
 		if need_newline:
 			src.write("\n")
 
 		if target_member == "":
 			target_member = "data." + self.member
-		elif target_as_format:
-			target_member = target_member.format(self.member)
 
 		if self.is_group:
 			if self.inherit:
@@ -456,10 +454,10 @@ class AllContentDef(ContentDef):
 			src.write("\n")
 			if elem.optional:
 				self.twrite(src, intendent + 2, "{} _element_{};\n".format(elem.element.generate_type(), cnt))
-				elem.element.write_src_content(src, False, intendent + 2, target_member="_element_{}".format(cnt), return_target="_ok")
-				self.twrite(src, intendent + 2, "if(_ok) {\n")
+				self.twrite(src, intendent + 2, "if(reader.name() == QStringLiteral(\"{}\")) {{\n".format(elem.element.xml_name()))
 				self.twrite(src, intendent + 3, "if(_usedElements.contains({}))\n".format(cnt))
-				self.twrite(src, intendent + 4, "throwChild(reader);\n")
+				self.twrite(src, intendent + 4, "break;\n")
+				self.twrite(src, intendent + 3, "{}(reader, _element_1{});\n".format(elem.element.read_method(), elem.element.read_method_params()))
 				self.twrite(src, intendent + 3, "_usedElements.insert({});\n".format(cnt))
 				self.twrite(src, intendent + 3, "data.{} = std::move(_element_{});\n".format(elem.element.member_name(), cnt))
 				self.twrite(src, intendent + 3, "hasNext = reader.readNextStartElement();\n")
@@ -467,10 +465,10 @@ class AllContentDef(ContentDef):
 				self.twrite(src, intendent + 3, "continue;\n")
 				self.twrite(src, intendent + 2, "}\n")
 			else:
-				elem.element.write_src_content(src, False, intendent + 2, return_target="_ok")
-				self.twrite(src, intendent + 2, "if(_ok) {\n")
+				self.twrite(src, intendent + 2, "if(reader.name() == QStringLiteral(\"{}\")) {{\n".format(elem.element.xml_name()))
 				self.twrite(src, intendent + 3, "if(_usedElements.contains({}))\n".format(cnt))
-				self.twrite(src, intendent + 4, "throwChild(reader);\n")
+				self.twrite(src, intendent + 4, "break;\n")
+				self.twrite(src, intendent + 3, "{}(reader, data.{});\n".format(elem.element.read_method(), elem.element.member_name(), elem.element.read_method_params()))
 				self.twrite(src, intendent + 3, "_usedElements.insert({});\n".format(cnt))
 				self.twrite(src, intendent + 3, "hasNext = reader.readNextStartElement();\n")
 				self.twrite(src, intendent + 3, "checkError(reader);\n")
@@ -480,7 +478,7 @@ class AllContentDef(ContentDef):
 			cnt += 1
 
 		src.write("\n")
-		self.twrite(src, intendent + 2, "throwChild(reader);\n")
+		self.twrite(src, intendent + 2, "break;\n")
 		self.twrite(src, intendent + 1, "}\n")
 		self.twrite(src, intendent + 1, "if(!_usedElements.contains(QSet<int> {{{}}}))\n".format(", ".join(map(str, req_list))))
 		self.twrite(src, intendent + 2, "throwNoChild(reader);\n")
@@ -612,30 +610,48 @@ class MixedTypeDef(ComplexTypeDef):
 			src.write("\tauto current_element = reader.name().toString();\n")
 			src.write("\tread_{}(reader, data, true);\n".format(self.baseType))
 
-		# write simple content
+		# read simple content
 		if need_newline:
 			src.write("\n")
 		if self.baseType != "":
 			src.write("\tif(!reader.isStartElement() || reader.name() != current_element)\n")
-			src.write("\t\tthrowInvalidSimple(reader);\n")
-		src.write("\ttry {\n")
-		src.write("\t\tdata.{} = readContent<{}>(reader);\n".format(self.contentMember, self.contentCppType))
-		src.write("\t\treturn;\n")
-		src.write("\t} catch(XmlException &) {\n")
-		src.write("\t\tif(!reader.isStartElement())\n")
-		src.write("\t\t\tthrow;\n")
-		src.write("\t}\n")
+			src.write("\t\tthrowInvalidSimple(reader);\n\n")
 
-		# write complex content
+		src.write("\tQString contentText;\n")
+		src.write("\tauto canReadText = true;\n")
+		src.write("\twhile(canReadText) {\n")
+		src.write("\t\tswitch(reader.readNext()) {\n")
+		src.write("\t\tcase QXmlStreamReader::Characters:\n")
+		src.write("\t\tcase QXmlStreamReader::EntityReference:\n")
+		src.write("\t\t\tcontentText.append(reader.text());\n")
+		src.write("\t\t\tbreak;\n")
+		src.write("\t\tcase QXmlStreamReader::StartElement:\n")
+		src.write("\t\tcase QXmlStreamReader::EndElement:\n")
+		src.write("\t\t\tcanReadText = false;\n")
+		src.write("\t\t\tbreak;\n")
+		src.write("\t\tcase QXmlStreamReader::ProcessingInstruction:\n")
+		src.write("\t\tcase QXmlStreamReader::Comment:\n")
+		src.write("\t\t\tbreak;\n")
+		src.write("\t\tdefault:\n")
+		src.write("\t\t\tthrowChild(reader);\n")
+		src.write("\t\t}\n")
+		src.write("\t}\n\n")
+
+		# save simple content or...
+		src.write("\tif(reader.tokenType() == QXmlStreamReader::EndElement) {\n")
+		src.write("\t\tdata.{} = QVariant{{std::move(contentText)}}.value<{}>();\n".format(self.contentMember, self.contentCppType))
+
+		# ... read complex content
 		if self.content is not None:
+			src.write("\t} else {\n")
+			src.write("\t\tauto hasNext = true;\n")
+			need_newline = self.content.write_src_content(src, False, 2)
 			if need_newline:
 				src.write("\n")
-			src.write("\tauto hasNext = true;\n")
-			need_newline = self.content.write_src_content(src, False, 1)
-			if need_newline:
-				src.write("\n")
-			src.write("\tif(hasNext && !keepElementOpen)\n")
-			src.write("\t\tthrowChild(reader);\n")
+			src.write("\t\tif(hasNext && !keepElementOpen)\n")
+			src.write("\t\t\tthrowChild(reader);\n")
+
+		src.write("\t}\n")
 
 
 class GroupTypeDef(TypeDef):
@@ -896,7 +912,7 @@ class XmlCodeGenerator:
 				allow_count = True
 
 		# if applicable: apply count
-		if not isinstance(content, SequenceContentDef):
+		if content is not None and not isinstance(content, SequenceContentDef):
 			elem = SequenceContentDef.Element()
 			if allow_count:
 				elem.min, elem.max = self.read_occurs(sub_content)
@@ -1305,7 +1321,7 @@ class XmlCodeGenerator:
 
 		src.write("void {}::throwNoChild(QXmlStreamReader &reader) const\n".format(self.config.className))
 		src.write("{\n")
-		src.write("\tthrow XmlException{reader, QStringLiteral(\"Unexpected end of element. Expected more child elements\")};\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Unexpected end of element \\\"%1\\\". Expected more child elements\").arg(reader.name())};\n")
 		src.write("}\n\n")
 
 		src.write("void {}::throwInvalidSimple(QXmlStreamReader &reader) const\n".format(self.config.className))

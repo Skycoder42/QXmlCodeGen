@@ -29,7 +29,25 @@ void TestXmlCodeGen::testParser_data()
 													 << -1;
 	QTest::newRow("Root1.valid") << QStringLiteral(SRCDIR "/test4.xml")
 								 << true
-								 << 0;
+								 << 1;
+	QTest::newRow("Root2.valid") << QStringLiteral(SRCDIR "/test5.xml")
+								 << true
+								 << 2;
+	QTest::newRow("Root3.valid") << QStringLiteral(SRCDIR "/test6.xml")
+								 << true
+								 << 3;
+	QTest::newRow("Root4.text") << QStringLiteral(SRCDIR "/test7.xml")
+								<< true
+								<< 4;
+	QTest::newRow("Root4.content") << QStringLiteral(SRCDIR "/test8.xml")
+								   << true
+								   << 4;
+	QTest::newRow("Root5.text") << QStringLiteral(SRCDIR "/test9.xml")
+								<< true
+								<< 5;
+	QTest::newRow("Root5.content") << QStringLiteral(SRCDIR "/test10.xml")
+								   << true
+								   << 5;
 }
 
 void TestXmlCodeGen::testParser()

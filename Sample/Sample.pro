@@ -25,4 +25,10 @@ DISTFILES += \
     test1.xml \
     test2.xml \
     test3.xml \
-    test4.xml
+    test4.xml \
+    test5.xml \
+    test6.xml \
+    test7.xml \
+    test8.xml \
+    test9.xml \
+    test10.xml

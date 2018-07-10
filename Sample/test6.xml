@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root3 xmlns="https://skycoder42.de/schemes/Sample"
+	   mem1="Hello World"
+	   value1="another string"
+	   value2="2018-10-10T10:10"
+	   value3="false">
+   <Content unit="">1</Content>
+   <Content unit="">2</Content>
+   <Content unit="">3</Content>
+   <Content unit="">4</Content>
+   <Content unit="">5</Content>
+   <Type4 mem2="42">
+	   <Content unit="">1</Content>
+	   <Content unit="">2</Content>
+	   <Content unit="">3</Content>
+	   <Content unit="">4</Content>
+	   <Content unit="">5</Content>
+   </Type4>
+   <Type5>
+	   <Type1 unit="stuff">42</Type1>
+	   <Type2>24</Type2>
+	   <Type2>24</Type2>
+	   <Type2>24</Type2>
+	   <Type2>24</Type2>
+	   <Type4>24</Type4>
+	   <Type2>666</Type2>
+	   <Type1 unit="stuff">42</Type1>
+	   <Type1 unit="stuff">42</Type1>
+	   <Type2>24</Type2>
+	   <Type1 unit="stuff">42</Type1>
+   </Type5>
+</Root3>

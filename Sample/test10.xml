@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root5 mem2="42">
+	<Type1 unit="stuff">42</Type1>
+	<Type2>24</Type2>
+	<Type2>24</Type2>
+	<Type2>24</Type2>
+	<Type2>24</Type2>
+	<Type4>24</Type4>
+	<Type2>666</Type2>
+	<Type1 unit="stuff">42</Type1>
+	<Type1 unit="stuff">42</Type1>
+	<Type2>24</Type2>
+	<Type1 unit="stuff">42</Type1>
+</Root5>

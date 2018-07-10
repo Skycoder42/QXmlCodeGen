@@ -115,6 +115,12 @@
 
 
 	<!-- Basic complex type -->
+	<xs:complexType name="Type0">
+		<xs:attribute name="mem1" type="xs:string"/>
+		<xs:attribute name="mem2" type="xs:integer"/>
+		<xs:attributeGroup ref="AttrGroup3" qxg:inherit="true"/>
+	</xs:complexType>
+
 	<xs:complexType name="Type1">
 		<xs:sequence>
 			<xs:element type="SimpleType" name="Content" maxOccurs="unbounded" minOccurs="5"/>
@@ -182,14 +188,14 @@
 		<xs:sequence>
 			<xs:element type="SimpleType" name="Content" maxOccurs="unbounded" minOccurs="5"/>
 		</xs:sequence>
-		<xs:attribute name="mem1" type="xs:string"/>
+		<xs:attribute name="mem1" type="xs:string" use="required"/>
 		<xs:attribute name="mem2" type="xs:integer"/>
 	</xs:complexType>
 
 	<!-- Mixed complex inherited type -->
 	<xs:complexType name="Type7" mixed="true">
 		<xs:complexContent>
-			<xs:extension base="Type2" qxg:member="alternative">
+			<xs:extension base="Type0" qxg:member="alternative">
 				<xs:group ref="Group4" qxg:member="stuff"/>
 			</xs:extension>
 		</xs:complexContent>

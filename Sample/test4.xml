@@ -16,5 +16,54 @@
 		<Type2>24</Type2>
 		<Type4>24</Type4>
 		<Type2>666</Type2>
+		<Type1 unit="stuff">42</Type1>
+		<Type1 unit="stuff">42</Type1>
+		<Type2>24</Type2>
+		<Type1 unit="stuff">42</Type1>
 	</Type5>
-</RootString>
+	<TypeB>
+		<Type1 unit="stuff">42</Type1>
+		<Type2>24</Type2>
+		<Type2>24</Type2>
+		<Type2>24</Type2>
+		<Type2>24</Type2>
+		<Type4>24</Type4>
+		<Type2>666</Type2>
+		<Type1 unit="stuff">42</Type1>
+		<Type1 unit="stuff">42</Type1>
+		<Type2>24</Type2>
+		<Type1 unit="stuff">42</Type1>
+	</TypeB>
+	<TypeA mem2="42">
+		<Content unit="">1</Content>
+		<Content unit="">2</Content>
+		<Content unit="">3</Content>
+		<Content unit="">4</Content>
+		<Content unit="">5</Content>
+	</TypeA>
+	<TypeA mem2="42">
+		<Content unit="">1</Content>
+		<Content unit="">2</Content>
+		<Content unit="">3</Content>
+		<Content unit="">4</Content>
+		<Content unit="">5</Content>
+	</TypeA>
+	<Type1 unit="stuff">42</Type1>
+	<Type2>24</Type2>
+	<Type2>24</Type2>
+	<Type2>24</Type2>
+	<Type2>24</Type2>
+	<Type4>24</Type4>
+	<Type2>666</Type2>
+	<Type1 unit="stuff">42</Type1>
+	<Type1 unit="stuff">42</Type1>
+	<Type2>24</Type2>
+	<Type1 unit="stuff">42</Type1>
+	<Type1 unit="stuff">42</Type1>
+	<Type2>24</Type2>
+	<Type1 unit="stuff">42</Type1>
+	<Type2>24</Type2>
+	<Type1 unit="stuff">42</Type1>
+	<Type2>24</Type2>
+	<FinalType unit="stuff">42</FinalType>
+</Root1>
