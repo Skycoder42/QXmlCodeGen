@@ -1,0 +1,22 @@
+{
+    "author": {
+        "email": "skycoder42.de@gmx.de",
+        "name": "Skycoder"
+    },
+    "dependencies": [
+    ],
+    "description": "A simple python script to generate C++ bindings from an XML Schema definition, with support for bootstrapped Qt",
+    "license": "BSD_3_CLAUSE",
+    "name": "de.skycoder42.qxmlcodegen",
+    "pri_filename": "qxmlcodegen.pri",
+    "repository": {
+        "type": "GIT",
+        "url": "https://github.com/Skycoder42/QXmlCodeGen.git"
+    },
+    "version": {
+        "fingerprint": "",
+        "label": "1.0.0",
+        "revision": ""
+    },
+    "webpage": "https://github.com/Skycoder42/QXmlCodeGen"
+}
