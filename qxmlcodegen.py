@@ -170,6 +170,7 @@ class TypeContentDef(ContentDef):
 	member: str = ""
 	type_key: str = ""
 	inherit: bool = False
+	is_basic_type: bool = False
 	method: MethodInfo = None
 
 	def __repr__(self):
@@ -225,7 +226,10 @@ class TypeContentDef(ContentDef):
 				self.twrite(src, intendent, "hasNext = {}(reader, {}, hasNext{});\n".format(self.read_method(), target_member, self.read_method_params()))
 		else:
 			self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\")) {{\n".format(self.name))
-			self.twrite(src, intendent + 1, "{}(reader, {}{});\n".format(self.read_method(), target_member, self.read_method_params()))
+			if self.is_basic_type and self.method is None:
+				self.twrite(src, intendent + 1, "{} = readContent<{}>(reader);\n".format(target_member, self.generate_type()))
+			else:
+				self.twrite(src, intendent + 1, "{}(reader, {}{});\n".format(self.read_method(), target_member, self.read_method_params()))
 			self.write_return(src, intendent + 1, return_target, True)
 			self.twrite(src, intendent, "} else\n")
 			self.write_return(src, intendent + 1, return_target, False)
@@ -298,7 +302,7 @@ class SequenceContentDef(ContentDef):
 			elif elem.is_single():
 				self.twrite(src, intendent, "if(!hasNext)\n")
 				self.twrite(src, intendent + 1, "throwNoChild(reader);\n")
-				elem.element.write_src_content(src, False, intendent, target_member="data" if elem.element.inherits() else "", return_target="_ok")
+				elem.element.write_src_content(src, False, intendent, target_member="data" if elem.element.is_inherited() else "", return_target="_ok")
 				self.twrite(src, intendent, "if(_ok) {\n")
 				self.twrite(src, intendent + 1, "hasNext = reader.readNextStartElement();\n")
 				self.twrite(src, intendent + 1, "checkError(reader);\n")
@@ -507,6 +511,7 @@ class TypeDef:
 	name: str = ""
 	members: list
 	member_groups: list
+	declare: bool = False
 
 	def __init__(self):
 		self.members = []
@@ -862,6 +867,11 @@ class XmlCodeGenerator:
 			content.name = node.attrib["name"]
 			content.member = self.read_qxg(node, "member", content.name[0].lower() + content.name[1:])
 			content.type_key = node.attrib["type"]
+			if self.read_qxg(node, "basicType", "false").lower() == "true":
+				content.is_basic_type = True
+			elif content.type_key in self.xs_type_map:
+				content.is_basic_type = True
+				content.type_key = self.xs_type_map[content.type_key]
 		elif nstag == "xs:group":
 			content.is_group = True
 			content.member = self.read_qxg(node, "member", "")
@@ -981,8 +991,9 @@ class XmlCodeGenerator:
 			content_node = node
 			type_def = MixedTypeDef() if mixed else  ComplexTypeDef()
 
-		# extract the name
+		# extract the name and optiona declare
 		type_def.name = node.attrib["name"]
+		type_def.declare = self.read_qxg(node, "declare", "false").lower() == "true"
 		# simple or mixed: content type
 		if isinstance(type_def, SimpleTypeDef) or isinstance(type_def, MixedTypeDef):
 			base_type = type_def.contentXmlType if isinstance(type_def, SimpleTypeDef) else "xs:string"
@@ -1104,18 +1115,18 @@ class XmlCodeGenerator:
 		if self.config.visibility is QxgConfig.Visibility.Private:
 			hdr.write("protected:\n")
 
-		known_types = set()
+		has_predefs = False
 		for type_def in type_defs:
-			known_types.add(type_def.name)
+			if type_def.declare:
+				has_predefs = True
+				hdr.write("\tstruct {};\n".format(type_def.name))
+		if has_predefs:
+			hdr.write("\n")
 
-			inh = type_def.inherits()
-			for base in inh:
-				if base not in known_types:
-					hdr.write("\tstruct {};\n".format(base))
-					known_types.add(base)
-
+		for type_def in type_defs:
 			# write inherits
 			hdr.write("\tstruct " + type_def.name)
+			inh = type_def.inherits()
 			if len(inh) > 0:
 				hdr.write(" : public " + ", public ".join(inh))
 			hdr.write("\n\t{\n")
