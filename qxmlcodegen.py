@@ -16,6 +16,17 @@ try:
 except ImportError:
 	from xml.etree.ElementTree import parse, ElementTree, Element
 
+xslt_qxg_remove_query = """
+<xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+	<xsl:template match="*[namespace-uri()='https://skycoder42.de/xml/schemas/QXmlCodeGen']" priority="1"/>
+	<xsl:template match="@*[namespace-uri()='https://skycoder42.de/xml/schemas/QXmlCodeGen']" priority="1"/>
+	<xsl:template match="@* | node()">
+		<xsl:copy>
+			<xsl:apply-templates select="@* | node()" />
+		</xsl:copy>
+	</xsl:template>
+</xsl:stylesheet>
+"""
 
 def xml_verify(xsd_path: str, required: bool=False):
 	try:
@@ -24,17 +35,7 @@ def xml_verify(xsd_path: str, required: bool=False):
 		if required:
 			raise
 
-	xslt_clear = etree.XML("""
-	<xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
-		<xsl:template match="*[namespace-uri()='https://skycoder42.de/QXmlCodeGen']" priority="1"/>
-		<xsl:template match="@*[namespace-uri()='https://skycoder42.de/QXmlCodeGen']" priority="1"/>
-		<xsl:template match="@* | node()">
-			<xsl:copy>
-				<xsl:apply-templates select="@* | node()" />
-			</xsl:copy>
-		</xsl:template>
-	</xsl:stylesheet>
-	""")
+	xslt_clear = etree.XML(xslt_qxg_remove_query)
 
 	try:
 		# if lxml is available: verify the xsd against the W3C scheme (excluding the qsg-stuff)
@@ -73,6 +74,7 @@ class QxgConfig:
 	visibility: Visibility = Visibility.Protected
 	includes: list
 	stdcompat: bool = False
+	schemaUrl: str = ""
 
 	def __init__(self, xsd_path = None):
 		self.includes = []
@@ -688,7 +690,7 @@ class AttrGroupTypeDef(TypeDef):
 
 class XmlCodeGenerator:
 	ns_map: dict = {
-		"qxg": "https://skycoder42.de/QXmlCodeGen"
+		"qxg": "https://skycoder42.de/xml/schemas/QXmlCodeGen"
 	}
 
 	xs_type_map: dict = {
@@ -725,7 +727,7 @@ class XmlCodeGenerator:
 
 	def ns_replace(self, name: str) -> str:
 		ns_replace_map = {
-			"{https://skycoder42.de/QXmlCodeGen}": "qxg:",
+			"{https://skycoder42.de/xml/schemas/QXmlCodeGen}": "qxg:",
 			"{http://www.w3.org/2001/XMLSchema}": "xs:",
 			"{https://www.w3.org/2001/XMLSchema}": "xs:",
 			"{http://www.w3.org/2009/XMLSchema/XMLSchema}": "xs:",
@@ -750,6 +752,8 @@ class XmlCodeGenerator:
 			self.config.ns = node.attrib["ns"]
 		if "stdcompat" in node.attrib:
 			self.config.stdcompat = node.attrib["stdcompat"].lower() == "true"
+		if "schemaUrl" in node.attrib:
+			self.config.schemaUrl = node.attrib["schemaUrl"]
 		if "visibility" in node.attrib:
 			self.config.visibility = QxgConfig.Visibility(node.attrib["visibility"].lower())
 		for child in node.findall("qxg:include", namespaces=self.ns_map):
@@ -887,7 +891,11 @@ class XmlCodeGenerator:
 				raise Exception("You cannot specify qxg:method on an element that already has qxg:inherit set to true")
 			content.method = TypeContentDef.MethodInfo()
 			content.method.method = method_mem
-			content.method.type_key = self.read_qxg(node, "methodType", content.type_key)
+			for method in self.methods:
+				if method.name == method_mem:
+					content.method.type_key = method.type_key
+			if content.method.type_key == "":
+				raise Exception("qxg:method specified with a method that was not declared beforehand")
 			for child in node.findall("qxg:param", namespaces=self.ns_map):
 				content.method.params.append(child.text)
 
@@ -1092,7 +1100,8 @@ class XmlCodeGenerator:
 		hdr.write("\tclass XmlException : public Exception\n")
 		hdr.write("\t{\n")
 		hdr.write("\tpublic:\n")
-		hdr.write("\t\tXmlException(QXmlStreamReader &reader, const QString &customError = {});\n\n")
+		hdr.write("\t\tXmlException(QXmlStreamReader &reader, const QString &customError = {});\n")
+		hdr.write("\t\tXmlException(QString path, qint64 line, qint64 column, QString error);\n\n")
 		hdr.write("\t\tQString filePath() const;\n")
 		hdr.write("\t\tqint64 line() const;\n")
 		hdr.write("\t\tqint64 column() const;\n")
@@ -1235,10 +1244,55 @@ class XmlCodeGenerator:
 
 	def write_src_begin(self, src: TextIOBase, hdr_path: str):
 		src.write("#include \"{}\"\n".format(os.path.basename(hdr_path)))
-		src.write("#include <QtCore/QFile>\n".format(os.path.basename(hdr_path)))
-		src.write("#include <QtCore/QSet>\n".format(os.path.basename(hdr_path)))
+		src.write("#include <QtCore/QFile>\n")
+		src.write("#include <QtCore/QSet>\n")
+		if self.config.schemaUrl != "":
+			src.write("#ifdef QT_XMLPATTERNS_LIB\n")
+			src.write("#include <QtCore/QDebug>\n")
+			src.write("#include <QtCore/QBuffer>\n")
+			src.write("#include <QtCore/QRegularExpression>\n")
+			src.write("#include <QtXmlPatterns/QXmlSchema>\n")
+			src.write("#include <QtXmlPatterns/QXmlSchemaValidator>\n")
+			src.write("#include <QtXmlPatterns/QXmlQuery>\n")
+			src.write("#include <QtXmlPatterns/QAbstractMessageHandler>\n")
+			src.write("#endif\n")
 		if self.config.ns != "":
 			src.write("using namespace {};\n".format(self.config.ns))
+
+		if self.config.schemaUrl != "":
+			src.write("\n#ifdef QT_XMLPATTERNS_LIB\n")
+			src.write("namespace {\n\n")
+			src.write("class ExceptionMessageHandler : public QAbstractMessageHandler\n")
+			src.write("{\n")
+			src.write("public:\n")
+			src.write("\texplicit inline ExceptionMessageHandler(QObject *parent = nullptr) :\n")
+			src.write("\t\tQAbstractMessageHandler{parent}\n")
+			src.write("\t{}\n\n")
+			src.write("protected:\n")
+			src.write("\tvoid handleMessage(QtMsgType type, const QString &description, const QUrl &identifier, const QSourceLocation &sourceLocation) override\n")
+			src.write("\t{\n")
+			src.write("\t\tQ_UNUSED(identifier)\n")
+			src.write("\t\tauto msg = description;\n")
+			src.write("\t\tmsg.remove(QRegularExpression{QStringLiteral(\"<[^>]*>\")});\n")
+			src.write("\t\t{}::XmlException exception{{sourceLocation.uri().toString(), sourceLocation.line(), sourceLocation.column(), msg}};\n".format(self.config.className))
+			src.write("\t\tswitch(type) {\n")
+			src.write("\t\tcase QtDebugMsg:\n")
+			src.write("\t\t\tqDebug() << exception.what();\n")
+			src.write("\t\t\tbreak;\n")
+			src.write("\t\tcase QtInfoMsg:\n")
+			src.write("\t\t\tqInfo() << exception.what();\n")
+			src.write("\t\t\tbreak;\n")
+			src.write("\t\tcase QtWarningMsg:\n")
+			src.write("\t\t\tqWarning() << exception.what();\n")
+			src.write("\t\t\tbreak;\n")
+			src.write("\t\tdefault:\n")
+			src.write("\t\t\tthrow exception;\n")
+			src.write("\t\t}\n")
+			src.write("\t}\n")
+			src.write("};\n\n")
+			src.write("}\n")
+			src.write("#endif\n")
+
 		src.write("\n{}::{}() = default;\n\n".format(self.config.className, self.config.className))
 		src.write("{}::~{}() = default;\n\n".format(self.config.className, self.config.className))
 
@@ -1272,9 +1326,37 @@ class XmlCodeGenerator:
 		src.write("\t\tthrowChild(reader);\n")
 		src.write("}\n\n")
 
-		# file method
+		# file method (the only one that can verify a pattern)
 		src.write("{}::{} {}::readDocument(const QString &path)\n".format(self.config.className, type_args, self.config.className))
 		src.write("{\n")
+
+		if self.config.schemaUrl != "":
+			src.write("#ifdef QT_XMLPATTERNS_LIB\n")
+			src.write("\tQUrl schemaUrl{{QStringLiteral(\"{}\")}};\n".format(self.config.schemaUrl))
+			src.write("\tExceptionMessageHandler errorHandler;\n")
+			src.write("\tQBuffer xmlBuffer;\n")
+			src.write("\txmlBuffer.open(QIODevice::ReadWrite);\n\n")
+
+			src.write("\tQXmlQuery query(QXmlQuery::XSLT20);\n")
+			src.write("\tquery.setMessageHandler(&errorHandler);\n")
+			src.write("\tquery.setFocus(schemaUrl);\n")
+			src.write("\tquery.setQuery(QStringLiteral(R\"___({})___\"));\n".format(xslt_qxg_remove_query))
+			src.write("\tauto ok = query.evaluateTo(&xmlBuffer);\n")
+			src.write("\tQ_ASSERT(ok);\n\n")
+
+			src.write("\tQXmlSchema schema;\n")
+			src.write("\tschema.setMessageHandler(&errorHandler);\n")
+			src.write("\txmlBuffer.seek(0);\n")
+			src.write("\tok = schema.load(&xmlBuffer, schemaUrl);\n")
+			src.write("\tQ_ASSERT(ok);\n\n")
+
+			src.write("\tQXmlSchemaValidator validator;\n")
+			src.write("\tvalidator.setMessageHandler(&errorHandler);\n")
+			src.write("\tvalidator.setSchema(schema);\n")
+			src.write("\tok = validator.validate(QUrl::fromLocalFile(path));\n")
+			src.write("\tQ_ASSERT(ok);\n")
+			src.write("#endif\n\n")
+
 		src.write("\tQFile xmlFile{path};\n")
 		src.write("\tif(!xmlFile.open(QIODevice::ReadOnly | QIODevice::Text))\n")
 		src.write("\t\tthrow FileException{xmlFile};\n")
@@ -1408,6 +1490,14 @@ class XmlCodeGenerator:
 		src.write("\t_line{reader.lineNumber()},\n")
 		src.write("\t_column{reader.columnNumber()},\n")
 		src.write("\t_error{customError.isNull() ? reader.errorString() : customError}\n")
+		src.write("{}\n\n")
+
+		src.write("{}::XmlException::XmlException(QString path, qint64 line, qint64 column, QString error) :\n".format(self.config.className))
+		src.write("\tException{},\n")
+		src.write("\t_path{std::move(path)},\n")
+		src.write("\t_line{std::move(line)},\n")
+		src.write("\t_column{std::move(column)},\n")
+		src.write("\t_error{std::move(error)}\n")
 		src.write("{}\n\n")
 
 		src.write("{}::XmlException::XmlException(const XmlException * const other) :\n".format(self.config.className))

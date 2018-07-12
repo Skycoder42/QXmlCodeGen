@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-		   xmlns:qxg="https://skycoder42.de/QXmlCodeGen">
+		   xmlns:qxg="https://skycoder42.de/xml/schemas/QXmlCodeGen">
 	<qxg:config class="TestClass"
 				prefix="Q_TEST_EXPORT"
 				ns="TestNamespace"
