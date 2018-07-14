@@ -195,10 +195,12 @@ class TypeContentDef(ContentDef):
 			return self.method.type_key
 
 	def read_method(self) -> str:
-		if self.method is None:
-			return super(TypeContentDef, self).read_method()
-		else:
+		if self.method is not None:
 			return self.method.method
+		elif self.is_basic_type:
+			return "readContent<{}>".format(self.type_key)
+		else:
+			return super(TypeContentDef, self).read_method()
 
 	def read_method_params(self) -> str:
 		if self.method is None:
@@ -228,10 +230,7 @@ class TypeContentDef(ContentDef):
 				self.twrite(src, intendent, "hasNext = {}(reader, {}, hasNext{});\n".format(self.read_method(), target_member, self.read_method_params()))
 		else:
 			self.twrite(src, intendent, "if(reader.name() == QStringLiteral(\"{}\")) {{\n".format(self.name))
-			if self.is_basic_type and self.method is None:
-				self.twrite(src, intendent + 1, "{} = readContent<{}>(reader);\n".format(target_member, self.generate_type()))
-			else:
-				self.twrite(src, intendent + 1, "{}(reader, {}{});\n".format(self.read_method(), target_member, self.read_method_params()))
+			self.twrite(src, intendent + 1, "{}(reader, {}{});\n".format(self.read_method(), target_member, self.read_method_params()))
 			self.write_return(src, intendent + 1, return_target, True)
 			self.twrite(src, intendent, "} else\n")
 			self.write_return(src, intendent + 1, return_target, False)
@@ -548,7 +547,7 @@ class SimpleTypeDef(TypeDef):
 	def write_src_content(self, src: TextIOBase, need_newline: bool):
 		if need_newline:
 			src.write("\n")
-		src.write("\tdata.{} = readContent<{}>(reader);\n".format(self.contentMember, self.contentCppType))
+		src.write("\treadContent<{}>(reader, data.{});\n".format(self.contentCppType, self.contentMember))
 
 
 class ComplexTypeDef(TypeDef):
@@ -887,8 +886,6 @@ class XmlCodeGenerator:
 
 		method_mem = self.read_qxg(node, "method", "")
 		if method_mem != "":
-			if inherit_mem != "":
-				raise Exception("You cannot specify qxg:method on an element that already has qxg:inherit set to true")
 			content.method = TypeContentDef.MethodInfo()
 			content.method.method = method_mem
 			for method in self.methods:
@@ -1194,7 +1191,7 @@ class XmlCodeGenerator:
 		hdr.write("\tT readRequiredAttrib(QXmlStreamReader &reader, const QString &key) const;\n\n")
 
 		hdr.write("\ttemplate <typename T>\n")
-		hdr.write("\tT readContent(QXmlStreamReader &reader) const;\n\n")
+		hdr.write("\tvoid readContent(QXmlStreamReader &reader, T &data) const;\n\n")
 
 		hdr.write("\tvoid checkError(QXmlStreamReader &reader) const;\n")
 		hdr.write("\tQ_NORETURN void throwChild(QXmlStreamReader &reader) const;\n")
@@ -1231,11 +1228,11 @@ class XmlCodeGenerator:
 		hdr.write("}\n\n")
 
 		hdr.write("template <typename T>\n")
-		hdr.write("T {}::readContent(QXmlStreamReader &reader) const\n".format(self.config.className))
+		hdr.write("void {}::readContent(QXmlStreamReader &reader, T &data) const\n".format(self.config.className))
 		hdr.write("{\n")
 		hdr.write("\tauto content = reader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);\n")
 		hdr.write("\tcheckError(reader);\n")
-		hdr.write("\treturn QVariant{std::move(content)}.template value<T>();\n")
+		hdr.write("\tdata = QVariant{std::move(content)}.template value<T>();\n")
 		hdr.write("}\n\n")
 
 		if self.config.ns != "":
