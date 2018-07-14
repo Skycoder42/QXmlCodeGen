@@ -1271,7 +1271,7 @@ class XmlCodeGenerator:
 			src.write("\t\tQ_UNUSED(identifier)\n")
 			src.write("\t\tauto msg = description;\n")
 			src.write("\t\tmsg.remove(QRegularExpression{QStringLiteral(\"<[^>]*>\")});\n")
-			src.write("\t\t{}::XmlException exception{{sourceLocation.uri().toString(), sourceLocation.line(), sourceLocation.column(), msg}};\n".format(self.config.className))
+			src.write("\t\t{}::XmlException exception{{sourceLocation.uri().isLocalFile() ? sourceLocation.uri().toLocalFile() : sourceLocation.uri().toString(), sourceLocation.line(), sourceLocation.column(), msg}};\n".format(self.config.className))
 			src.write("\t\tswitch(type) {\n")
 			src.write("\t\tcase QtDebugMsg:\n")
 			src.write("\t\t\tqDebug() << exception.what();\n")
