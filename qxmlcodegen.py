@@ -16,6 +16,7 @@ try:
 except ImportError:
 	from xml.etree.ElementTree import parse, ElementTree, Element
 
+
 xslt_qxg_remove_query = """
 <xsl:stylesheet version="2.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 	<xsl:template match="*[namespace-uri()='https://skycoder42.de/xml/schemas/QXmlCodeGen']" priority="1"/>
@@ -28,12 +29,16 @@ xslt_qxg_remove_query = """
 </xsl:stylesheet>
 """
 
+
 def xml_verify(xsd_path: str, required: bool=False):
 	try:
 		from lxml import etree
-	except ImportError:
+	except ImportError as iexc:
 		if required:
 			raise
+		else:
+			print("Skipping XSD validation because of unavailable module:", iexc, file=sys.stderr)
+			return
 
 	xslt_clear = etree.XML(xslt_qxg_remove_query)
 
