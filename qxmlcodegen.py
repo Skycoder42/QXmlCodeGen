@@ -6,7 +6,7 @@ import argparse
 import os
 from enum import Enum
 
-import requests
+import urllib.request
 import sys
 
 from io import BytesIO, TextIOBase
@@ -39,12 +39,12 @@ def xml_verify(xsd_path: str, required: bool=False):
 
 	try:
 		# if lxml is available: verify the xsd against the W3C scheme (excluding the qsg-stuff)
-		xsd_schema_req = requests.get("https://www.w3.org/2009/XMLSchema/XMLSchema.xsd")
-		xmlschema_doc = etree.parse(BytesIO(xsd_schema_req.content))
+		xsd_schema_req = urllib.request.urlopen("https://www.w3.org/2009/XMLSchema/XMLSchema.xsd")
+		xmlschema_doc = etree.parse(xsd_schema_req)
 		xmlschema = etree.XMLSchema(xmlschema_doc)
 		transform = etree.XSLT(xslt_clear)
 		xmlschema.assertValid(transform(etree.parse(xsd_path)))
-	except requests.exceptions.RequestException as rexc:
+	except urllib.error.URLError as rexc:
 		if required:
 			raise
 		else:
