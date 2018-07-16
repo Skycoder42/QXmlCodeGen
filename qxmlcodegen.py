@@ -584,18 +584,18 @@ class ComplexTypeDef(TypeDef):
 			src.write("\tread_{}(reader, data, true);\n".format(self.baseType))
 
 		# write content
+		if need_newline:
+			src.write("\n")
+		if self.baseType != "":
+			src.write("\tauto hasNext = reader.isStartElement();\n")
+		else:
+			src.write("\tauto hasNext = reader.readNextStartElement();\n")
 		if self.content is not None:
-			if need_newline:
-				src.write("\n")
-			if self.baseType != "":
-				src.write("\tauto hasNext = reader.isStartElement();\n")
-			else:
-				src.write("\tauto hasNext = reader.readNextStartElement();\n")
 			need_newline = self.content.write_src_content(src, False, 1)
 			if need_newline:
 				src.write("\n")
-			src.write("\tif(hasNext && !keepElementOpen)\n")
-			src.write("\t\tthrowChild(reader);\n")
+		src.write("\tif(hasNext && !keepElementOpen)\n")
+		src.write("\t\tthrowChild(reader);\n")
 
 
 class MixedTypeDef(ComplexTypeDef):
@@ -613,21 +613,7 @@ class MixedTypeDef(ComplexTypeDef):
 		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
 
 	def write_src_content(self, src: TextIOBase, need_newline: bool):
-		# write base class
-		if self.baseType != "":
-			if need_newline:
-				src.write("\n")
-			need_newline = True
-			src.write("\tauto current_element = reader.name().toString();\n")
-			src.write("\tread_{}(reader, data, true);\n".format(self.baseType))
-
 		# read simple content
-		if need_newline:
-			src.write("\n")
-		if self.baseType != "":
-			src.write("\tif(!reader.isStartElement() || reader.name() != current_element)\n")
-			src.write("\t\tthrowInvalidSimple(reader);\n\n")
-
 		src.write("\tQString contentText;\n")
 		src.write("\tauto canReadText = true;\n")
 		src.write("\twhile(canReadText) {\n")
@@ -653,15 +639,14 @@ class MixedTypeDef(ComplexTypeDef):
 		src.write("\t\tdata.{} = QVariant{{std::move(contentText)}}.value<{}>();\n".format(self.contentMember, self.contentCppType))
 
 		# ... read complex content
+		src.write("\t} else {\n")
+		src.write("\t\tauto hasNext = true;\n")
 		if self.content is not None:
-			src.write("\t} else {\n")
-			src.write("\t\tauto hasNext = true;\n")
 			need_newline = self.content.write_src_content(src, False, 2)
 			if need_newline:
 				src.write("\n")
-			src.write("\t\tif(hasNext && !keepElementOpen)\n")
-			src.write("\t\t\tthrowChild(reader);\n")
-
+		src.write("\t\tif(hasNext && !keepElementOpen)\n")
+		src.write("\t\t\tthrowChild(reader);\n")
 		src.write("\t}\n")
 
 
@@ -994,12 +979,17 @@ class XmlCodeGenerator:
 				content_node = content_node.find("xs:extension", namespaces=self.ns_map)
 				if content_node is None:
 					raise Exception("Only xs:complexContent elements with an xs:extension as child are allowed")
-				type_def = MixedTypeDef() if mixed else  ComplexTypeDef()
-				type_def.baseType = content_node.attrib["base"]
+				if mixed:
+					type_def = MixedTypeDef()
+					if "base" in content_node.attrib:
+						raise Exception("xs:complexType definition that have a xs:base and are xs:mixed are not supported")
+				else:
+					type_def = ComplexTypeDef()
+					type_def.baseType = content_node.attrib["base"]
 		# otherwise expect "normal" complex content
 		if content_node is None:
 			content_node = node
-			type_def = MixedTypeDef() if mixed else  ComplexTypeDef()
+			type_def = MixedTypeDef() if mixed else ComplexTypeDef()
 
 		# extract the name and optiona declare
 		type_def.name = node.attrib["name"]
@@ -1067,8 +1057,8 @@ class XmlCodeGenerator:
 			hdr.write("\ttemplate <typename... TArgs>\n")
 			hdr.write("\tusing variant = nonstd::variant<TArgs...>;\n")
 			hdr.write("\ttemplate <typename TGet, typename... TArgs>\n")
-			hdr.write("\tstatic inline Q_DECL_CONSTEXPR auto get(TArgs... args) -> decltype(nonstd::get<TGet>(args...)) {\n")
-			hdr.write("\t\treturn nonstd::get<TGet>(args...);\n")
+			hdr.write("\tstatic inline Q_DECL_CONSTEXPR auto get(TArgs&&... args) -> decltype(nonstd::get<TGet>(std::forward<TArgs>(args)...)) {\n")
+			hdr.write("\t\treturn nonstd::get<TGet>(std::forward<TArgs>(args)...);\n")
 			hdr.write("\t}\n\n")
 		else:
 			hdr.write("\ttemplate <typename... TArgs>\n")
@@ -1076,8 +1066,8 @@ class XmlCodeGenerator:
 			hdr.write("\ttemplate <typename... TArgs>\n")
 			hdr.write("\tusing variant = std::variant<TArgs...>;\n")
 			hdr.write("\ttemplate <typename TGet, typename... TArgs>\n")
-			hdr.write("\tstatic inline Q_DECL_CONSTEXPR auto get(TArgs... args) -> decltype(std::get<TGet>(args...)) {\n")
-			hdr.write("\t\treturn std::get<TGet>(args...);\n")
+			hdr.write("\tstatic inline Q_DECL_CONSTEXPR auto get(TArgs&&... args) -> decltype(std::get<TGet>(std::forward<TArgs>(args)...)) {\n")
+			hdr.write("\t\treturn std::get<TGet>(std::forward<TArgs>(args)...);\n")
 			hdr.write("\t}\n\n")
 
 		hdr.write("\tclass Exception : public std::exception\n")
