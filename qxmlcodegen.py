@@ -610,7 +610,7 @@ class MixedTypeDef(ComplexTypeDef):
 
 	def write_hdr_content(self, hdr: TextIOBase):
 		super(MixedTypeDef, self).write_hdr_content(hdr)
-		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
+		hdr.write("\t\toptional<{}> {};\n".format(self.contentCppType, self.contentMember))
 
 	def write_src_content(self, src: TextIOBase, need_newline: bool):
 		# read simple content
