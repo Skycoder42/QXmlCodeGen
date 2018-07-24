@@ -1,2 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Root5 mem1="texty" value3="true">hello world</Root5>
+<Root5 mem1="42 true"
+	   mem2="Medium">
+	<NumberList>1 2 3 4 5</NumberList>
+	<EnumElem>Large</EnumElem>
+</Root5>

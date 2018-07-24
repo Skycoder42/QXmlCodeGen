@@ -20,6 +20,25 @@
 
 
 
+	<!-- A simple list type -->
+	<xs:simpleType name="NumbersType">
+		<xs:list itemType="xs:integer"/>
+	</xs:simpleType>
+
+	<!-- A simple union type -->
+	<xs:simpleType name="SizeType">
+		<xs:union memberTypes="xs:int xs:boolean"/>
+	</xs:simpleType>
+
+	<!-- A basic enum type -->
+	<xs:simpleType name="ScalesType">
+		<xs:restriction base="xs:string">
+			<xs:enumeration value="Small" qxg:value="-1"/>
+			<xs:enumeration value="Medium" qxg:key="Normal"/>
+			<xs:enumeration value="Large" qxg:value="10"/>
+		</xs:restriction>
+	</xs:simpleType>
+
 	<!-- A basic simple type -->
 	<xs:complexType name="SimpleType">
 		<xs:simpleContent>
@@ -192,13 +211,15 @@
 		<xs:attribute name="mem2" type="xs:integer"/>
 	</xs:complexType>
 
-	<!-- Mixed complex inherited type -->
-	<xs:complexType name="Type7" mixed="true">
-		<xs:complexContent>
-			<xs:extension base="Type0" qxg:member="alternative">
-				<xs:group ref="Group4" qxg:member="stuff"/>
-			</xs:extension>
-		</xs:complexContent>
+
+	<!-- special values type -->
+	<xs:complexType name="Type7">
+		<xs:all>
+			<xs:element type="NumbersType" name="NumberList"/>
+			<xs:element type="ScalesType" name="EnumElem"/>
+		</xs:all>
+		<xs:attribute name="mem1" type="SizeType" use="required"/>
+		<xs:attribute name="mem2" type="ScalesType" use="required"/>
 	</xs:complexType>
 
 

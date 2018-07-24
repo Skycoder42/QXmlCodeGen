@@ -42,12 +42,9 @@ void TestXmlCodeGen::testParser_data()
 	QTest::newRow("Root4.content") << QStringLiteral(SRCDIR "/test8.xml")
 								   << true
 								   << 4;
-	QTest::newRow("Root5.text") << QStringLiteral(SRCDIR "/test9.xml")
-								<< true
-								<< 5;
-	QTest::newRow("Root5.content") << QStringLiteral(SRCDIR "/test10.xml")
-								   << true
-								   << 5;
+	QTest::newRow("Root5") << QStringLiteral(SRCDIR "/test9.xml")
+						   << true
+						   << 5;
 }
 
 void TestXmlCodeGen::testParser()

@@ -116,6 +116,94 @@ class QxgMethod:
 		return "{}(data: {}, {})".format(self.name, self.type_key, self.params)
 
 
+class BasicTypeDef:
+	name: str = ""
+	xmlType: str = ""
+	cppType: str = ""
+
+	def write_typedef(self, hdr: TextIOBase):
+		hdr.write("\tusing {} = {};\n\n".format(self.name, self.cppType))
+
+	def write_converter(self, hdr: TextIOBase):
+		pass  # nothing needs to be written here
+
+
+class ListBasicDef(BasicTypeDef):
+	def write_typedef(self, hdr: TextIOBase):
+		hdr.write("\tusing {} = QList<{}>;\n\n".format(self.name, self.cppType))
+
+	def write_converter(self, src: TextIOBase):
+		src.write("\tauto dataList = data.split(QRegularExpression{QStringLiteral(\"\\\\s+\")}, QString::SkipEmptyParts);\n")
+		src.write("\t{} resList;\n".format(self.name))
+		src.write("\tresList.reserve(dataList.size());\n")
+		src.write("\tfor(const auto &elem : dataList)\n")
+		src.write("\t\tresList.append(convertData<{}>(reader, elem));\n".format(self.cppType))
+		src.write("\treturn resList;\n")
+
+
+class UnionBasicDef(BasicTypeDef):
+	xmlTypeList: list
+	cppTypeList: list
+
+	def __init__(self):
+		self.xmlTypeList = []
+		self.cppTypeList = []
+
+	def write_typedef(self, hdr: TextIOBase):
+		hdr.write("\tusing {} = std::tuple<{}>;\n\n".format(self.name, ", ".join(self.cppTypeList)))
+
+	def write_converter(self, src: TextIOBase):
+		src.write("\tauto dataList = data.split(QRegularExpression{QStringLiteral(\"\\\\s+\")}, QString::SkipEmptyParts);\n")
+		src.write("\tif(dataList.size() != {})\n".format(len(self.cppTypeList)))
+		src.write("\t\tthrowSizeError(reader, {}, dataList.size(), true);\n".format(len(self.cppTypeList)))
+		src.write("\treturn std::make_tuple(\n")
+		elem_index = 0
+		for cppType in self.cppTypeList:
+			if elem_index != 0:
+				src.write(",\n")
+			src.write("\t\tconvertData<{}>(reader, dataList[{}])".format(cppType, elem_index))
+			elem_index += 1
+		src.write("\n\t);\n")
+
+
+class EnumBasicDef(BasicTypeDef):
+	class EnumElement:
+		xmlValue: str = ""
+		key: str = ""
+		value: str = ""
+
+	baseType: str = ""
+	elements: list
+
+	def __init__(self):
+		self.elements = []
+
+	def write_typedef(self, hdr: TextIOBase):
+		hdr.write("\tenum {} ".format(self.name))
+		if self.baseType != "":
+			hdr.write(": {} ".format(self.baseType))
+		hdr.write("{\n")
+		for elem in self.elements:
+			hdr.write("\t\t" + elem.key)
+			if elem.value != "":
+				hdr.write(" = " + elem.value)
+			hdr.write(",\n")
+		hdr.write("\t};\n\n")
+
+	def write_converter(self, src: TextIOBase):
+		is_first = True
+		for elem in self.elements:
+			src.write("\t")
+			if is_first:
+				is_first = False
+			else:
+				src.write("else ")
+			src.write("if(data == QStringLiteral(\"{}\"))\n".format(elem.xmlValue))
+			src.write("\t\treturn {};\n".format(elem.key))
+		src.write("\telse\n")
+		src.write("\t\tthrowInvalidEnum(reader, data);\n")
+
+
 class ContentDef:
 	def is_inherited(self) -> bool:
 		return False
@@ -703,9 +791,10 @@ class XmlCodeGenerator:
 		"xs:date": "QDate",
 		"xs:time": "QTime",
 		"xs:dateTime": "QDateTime",
-		"xs:base64Binary": "QByteArray",
-		"xs:hexBinary": "QByteArray",
+		"xs:base64Binary": "QByteArray",  # TODO implement
+		"xs:hexBinary": "QByteArray",  # TODO implement
 		"xs:anyURI": "QUrl",
+		"": ""  # nothing maps to nothing
 	}
 
 	config: QxgConfig
@@ -1019,6 +1108,57 @@ class XmlCodeGenerator:
 		type_def.members, type_def.member_groups = self.read_attribs(node)
 		return type_def
 
+	def read_simple_list_type(self, node: Element) -> ListBasicDef:
+		type_def = ListBasicDef()
+		type_def.xmlType = node.attrib["itemType"]
+		type_def.cppType = self.read_qxg(node, "type", type_def.xmlType, map_type=True)
+		return type_def
+
+	def read_simple_union_type(self, node: Element) -> UnionBasicDef:
+		type_def = UnionBasicDef()
+		type_def.xmlTypeList = node.attrib["memberTypes"].split(" ")
+		for type in type_def.xmlTypeList:
+			type_def.cppTypeList.append(self.xs_type_map[type])
+		return type_def
+
+	def read_simple_enum_type(self, node: Element) -> EnumBasicDef:
+		type_def = None
+		for elem in node.findall("xs:enumeration", namespaces=self.ns_map):
+			if type_def is None:
+				type_def = EnumBasicDef()
+			element = EnumBasicDef.EnumElement()
+			element.xmlValue = elem.attrib["value"]
+			element.key = self.read_qxg(elem, "key", element.xmlValue)
+			element.value = self.read_qxg(elem, "value", "")
+			type_def.elements.append(element)
+
+		if type_def is None:
+			type_def = BasicTypeDef()
+			type_def.xmlType = node.attrib["base"]
+		type_def.cppType = self.read_qxg(node, "type", type_def.xmlType, map_type=True)
+
+		return type_def
+
+	def read_simple_type(self, node: Element) -> BasicTypeDef:
+		basic_def = None
+		if basic_def is None:
+			content_node = node.find("xs:list", namespaces=self.ns_map)
+			if content_node is not None:
+				basic_def = self.read_simple_list_type(content_node)
+		if basic_def is None:
+			content_node = node.find("xs:union", namespaces=self.ns_map)
+			if content_node is not None:
+				basic_def = self.read_simple_union_type(content_node)
+		if basic_def is None:
+			content_node = node.find("xs:restriction", namespaces=self.ns_map)
+			if content_node is not None:
+				basic_def = self.read_simple_enum_type(content_node)
+		if basic_def is None:
+			raise Exception("Unable to find xs:list, xs:union or xs:restriction in xs:simpleType")
+
+		basic_def.name = node.attrib["name"]
+		return basic_def
+
 	def write_hdr_begin(self, hdr: TextIOBase, hdr_path: str):
 		inc_guard = os.path.basename(hdr_path).upper().replace(".", "_")
 		hdr.write("#ifndef {}\n".format(inc_guard))
@@ -1030,6 +1170,7 @@ class XmlCodeGenerator:
 		else:
 			hdr.write("#include <optional>\n")
 			hdr.write("#include <variant>\n")
+		hdr.write("#include <tuple>\n")
 		hdr.write("#include <exception>\n\n")
 
 		hdr.write("#include <QtCore/QString>\n")
@@ -1113,6 +1254,11 @@ class XmlCodeGenerator:
 		hdr.write("\t{}();\n".format(self.config.className))
 		hdr.write("\tvirtual ~{}();\n\n".format(self.config.className))
 
+	def write_hdr__simple_types(self, hdr: TextIOBase, type_defs: list):
+		for type_def in type_defs:
+			type_def.write_typedef(hdr)
+
+
 	def write_hdr_types(self, hdr: TextIOBase, type_defs: list):
 		if self.config.visibility is QxgConfig.Visibility.Private:
 			hdr.write("protected:\n")
@@ -1178,8 +1324,11 @@ class XmlCodeGenerator:
 			else:
 				hdr.write("\tvirtual void read_{}(QXmlStreamReader &reader, {} &data);\n".format(type_def.name, type_def.name))
 
-	def write_hdr_end(self, hdr: TextIOBase):
+	def write_hdr_end(self, hdr: TextIOBase, simple_types: list):
 		hdr.write("\n\ttemplate <typename T>\n")
+		hdr.write("\tT convertData(QXmlStreamReader &reader, const QString &data) const;\n\n")
+
+		hdr.write("\ttemplate <typename T>\n")
 		hdr.write("\toptional<T> readOptionalAttrib(QXmlStreamReader &reader, const QString &key) const;\n")
 		hdr.write("\ttemplate <typename T>\n")
 		hdr.write("\tT readOptionalAttrib(QXmlStreamReader &reader, const QString &key, const QString &defaultValue) const;\n")
@@ -1193,14 +1342,22 @@ class XmlCodeGenerator:
 		hdr.write("\tQ_NORETURN void throwChild(QXmlStreamReader &reader) const;\n")
 		hdr.write("\tQ_NORETURN void throwNoChild(QXmlStreamReader &reader) const;\n")
 		hdr.write("\tQ_NORETURN void throwInvalidSimple(QXmlStreamReader &reader) const;\n")
-		hdr.write("\tQ_NORETURN void throwSizeError(QXmlStreamReader &reader, int minValue, int currentValue) const;\n")
+		hdr.write("\tQ_NORETURN void throwSizeError(QXmlStreamReader &reader, int minValue, int currentValue, bool exactSize = false) const;\n")
+		hdr.write("\tQ_NORETURN void throwInvalidEnum(QXmlStreamReader &reader, const QString &text) const;\n")
 		hdr.write("};\n\n")
+
+		hdr.write("template <typename T>\n")
+		hdr.write("T {}::convertData(QXmlStreamReader &reader, const QString &data) const\n".format(self.config.className))
+		hdr.write("{\n")
+		hdr.write("\tQ_UNUSED(reader)\n")
+		hdr.write("\treturn QVariant{data}.template value<T>();\n")
+		hdr.write("}\n\n")
 
 		hdr.write("template <typename T>\n")
 		hdr.write("{}::optional<T> {}::readOptionalAttrib(QXmlStreamReader &reader, const QString &key) const\n".format(self.config.className, self.config.className))
 		hdr.write("{\n")
 		hdr.write("\tif(reader.attributes().hasAttribute(key))\n")
-		hdr.write("\t\treturn QVariant{reader.attributes().value(key).toString()}.template value<T>();\n")
+		hdr.write("\t\treturn convertData<T>(reader, reader.attributes().value(key).toString());\n")
 		hdr.write("\telse\n")
 		hdr.write("\t\treturn optional<T>{};\n")
 		hdr.write("}\n\n")
@@ -1209,16 +1366,16 @@ class XmlCodeGenerator:
 		hdr.write("T {}::readOptionalAttrib(QXmlStreamReader &reader, const QString &key, const QString &defaultValue) const\n".format(self.config.className))
 		hdr.write("{\n")
 		hdr.write("\tif(reader.attributes().hasAttribute(key))\n")
-		hdr.write("\t\treturn QVariant{reader.attributes().value(key).toString()}.template value<T>();\n")
+		hdr.write("\t\treturn convertData<T>(reader, reader.attributes().value(key).toString());\n")
 		hdr.write("\telse\n")
-		hdr.write("\t\treturn QVariant{defaultValue}.template value<T>();\n")
+		hdr.write("\t\treturn convertData<T>(reader, defaultValue);\n")
 		hdr.write("}\n\n")
 
 		hdr.write("template <typename T>\n")
 		hdr.write("T {}::readRequiredAttrib(QXmlStreamReader &reader, const QString &key) const\n".format(self.config.className))
 		hdr.write("{\n")
 		hdr.write("\tif(reader.attributes().hasAttribute(key))\n")
-		hdr.write("\t\treturn QVariant{reader.attributes().value(key).toString()}.template value<T>();\n")
+		hdr.write("\t\treturn convertData<T>(reader, reader.attributes().value(key).toString());\n")
 		hdr.write("\telse\n")
 		hdr.write("\t\tthrow XmlException{reader, QStringLiteral(\"Required attribute \\\"%1\\\" but was not set\").arg(key)};\n")
 		hdr.write("}\n\n")
@@ -1228,8 +1385,13 @@ class XmlCodeGenerator:
 		hdr.write("{\n")
 		hdr.write("\tauto content = reader.readElementText(QXmlStreamReader::ErrorOnUnexpectedElement);\n")
 		hdr.write("\tcheckError(reader);\n")
-		hdr.write("\tdata = QVariant{std::move(content)}.template value<T>();\n")
+		hdr.write("\tdata = convertData<T>(reader, content);\n")
 		hdr.write("}\n\n")
+
+		for type_def in simple_types:
+			type_name = "{}::{}".format(self.config.className, type_def.name)
+			hdr.write("template <>\n")
+			hdr.write("{} {}::convertData<{}>(QXmlStreamReader &reader, const QString &data) const;\n\n".format(type_name, self.config.className, type_name))
 
 		if self.config.ns != "":
 			hdr.write("}\n\n")
@@ -1239,6 +1401,7 @@ class XmlCodeGenerator:
 		src.write("#include \"{}\"\n".format(os.path.basename(hdr_path)))
 		src.write("#include <QtCore/QFile>\n")
 		src.write("#include <QtCore/QSet>\n")
+		src.write("#include <QtCore/QRegularExpression>\n")
 		if self.config.schemaUrl != "":
 			src.write("#ifdef QT_XMLPATTERNS_LIB\n")
 			src.write("#include <QtCore/QDebug>\n")
@@ -1393,7 +1556,7 @@ class XmlCodeGenerator:
 
 			src.write("}\n\n")
 
-	def write_src_end(self, src: TextIOBase):
+	def write_src_end(self, src: TextIOBase, simple_types: list):
 		src.write("void {}::checkError(QXmlStreamReader &reader) const\n".format(self.config.className))
 		src.write("{\n")
 		src.write("\tif(reader.hasError())\n")
@@ -1415,12 +1578,29 @@ class XmlCodeGenerator:
 		src.write("\tthrow XmlException{reader, QStringLiteral(\"Mixed content elements with a base class cannot have the base read any content\")};\n")
 		src.write("}\n\n")
 
-		src.write("void {}::throwSizeError(QXmlStreamReader &reader, int minValue, int currentValue) const\n".format(self.config.className))
+		src.write("void {}::throwSizeError(QXmlStreamReader &reader, int minValue, int currentValue, bool exactSize) const\n".format(self.config.className))
 		src.write("{\n")
-		src.write("\tthrow XmlException{reader, QStringLiteral(\"Expected at least %1 child elements, but only found %2\").arg(minValue).arg(currentValue)};\n")
-		src.write("}\n\n\n\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Expected %1 %2 child elements, but found %3\")\n")
+		src.write("\t\t.arg(exactSize ? QStringLiteral(\"exactly\") : QStringLiteral(\"at least\"))\n")
+		src.write("\t\t.arg(minValue)\n")
+		src.write("\t\t.arg(currentValue)\n")
+		src.write("\t};\n")
+		src.write("}\n\n")
 
-		src.write("{}::Exception::Exception() = default;\n\n".format(self.config.className))
+		src.write("void {}::throwInvalidEnum(QXmlStreamReader &reader, const QString &text) const\n".format(self.config.className))
+		src.write("{\n")
+		src.write("\tthrow XmlException{reader, QStringLiteral(\"Found unexpected value \\\"%1\\\" for restricted enum\").arg(text)};\n")
+		src.write("}\n\n")
+
+		for type_def in simple_types:
+			type_name = "{}::{}".format(self.config.className, type_def.name)
+			src.write("template <>\n")
+			src.write("{} {}::convertData<{}>(QXmlStreamReader &reader, const QString &data) const\n".format(type_name, self.config.className, type_name))
+			src.write("{\n")
+			type_def.write_converter(src)
+			src.write("}\n\n")
+
+		src.write("\n\n{}::Exception::Exception() = default;\n\n".format(self.config.className))
 
 		src.write("QString {}::Exception::qWhat() const\n".format(self.config.className))
 		src.write("{\n")
@@ -1515,6 +1695,7 @@ class XmlCodeGenerator:
 
 		# read type definitions
 		type_defs = []
+		simple_types = []
 		root_elements = []
 		for child in root:
 			xtag = self.ns_replace(child.tag)
@@ -1526,6 +1707,10 @@ class XmlCodeGenerator:
 				type_defs.append(self.read_group(child))
 			elif xtag == "xs:attributeGroup":
 				type_defs.append(self.read_attr_group(child))
+			elif xtag == "xs:simpleType":
+				s_type = self.read_simple_type(child)
+				simple_types.append(s_type)
+				self.xs_type_map[s_type.name] = s_type.name
 			elif xtag == "qxg:method":
 				self.methods.append(self.read_method(child))
 			elif xtag[0:4] == "qxg:":
@@ -1535,15 +1720,16 @@ class XmlCodeGenerator:
 
 		with open(hdr_path, "w") as hdr:
 			self.write_hdr_begin(hdr, hdr_path)
+			self.write_hdr__simple_types(hdr, simple_types)
 			self.write_hdr_types(hdr, type_defs)
 			self.write_hdr_methods(hdr, type_defs, root_elements)
-			self.write_hdr_end(hdr)
+			self.write_hdr_end(hdr, simple_types)
 
 		with open(src_path, "w") as src:
 			self.write_src_begin(src, hdr_path)
 			self.write_src_root(src, root_elements)
 			self.write_src_types(src, type_defs)
-			self.write_src_end(src)
+			self.write_src_end(src, simple_types)
 
 
 if __name__ == '__main__':
