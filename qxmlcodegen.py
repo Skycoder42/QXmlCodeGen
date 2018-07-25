@@ -133,7 +133,7 @@ class ListBasicDef(BasicTypeDef):
 		hdr.write("\tusing {} = QList<{}>;\n\n".format(self.name, self.cppType))
 
 	def write_converter(self, src: TextIOBase):
-		src.write("\tauto dataList = data.split(QRegularExpression{QStringLiteral(\"\\\\s+\")}, QString::SkipEmptyParts);\n")
+		src.write("\tauto dataList = data.split(XML_CODE_GEN_REGEXP{QStringLiteral(\"\\\\s+\")}, QString::SkipEmptyParts);\n")
 		src.write("\t{} resList;\n".format(self.name))
 		src.write("\tresList.reserve(dataList.size());\n")
 		src.write("\tfor(const auto &elem : dataList)\n")
@@ -153,7 +153,7 @@ class UnionBasicDef(BasicTypeDef):
 		hdr.write("\tusing {} = std::tuple<{}>;\n\n".format(self.name, ", ".join(self.cppTypeList)))
 
 	def write_converter(self, src: TextIOBase):
-		src.write("\tauto dataList = data.split(QRegularExpression{QStringLiteral(\"\\\\s+\")}, QString::SkipEmptyParts);\n")
+		src.write("\tauto dataList = data.split(XML_CODE_GEN_REGEXP{QStringLiteral(\"\\\\s+\")}, QString::SkipEmptyParts);\n")
 		src.write("\tif(dataList.size() != {})\n".format(len(self.cppTypeList)))
 		src.write("\t\tthrowSizeError(reader, {}, dataList.size(), true);\n".format(len(self.cppTypeList)))
 		src.write("\treturn std::make_tuple(\n")
@@ -1401,12 +1401,17 @@ class XmlCodeGenerator:
 		src.write("#include \"{}\"\n".format(os.path.basename(hdr_path)))
 		src.write("#include <QtCore/QFile>\n")
 		src.write("#include <QtCore/QSet>\n")
+		src.write("#if QT_CONFIG(regularexpression) == 1\n")
 		src.write("#include <QtCore/QRegularExpression>\n")
+		src.write("#define XML_CODE_GEN_REGEXP QRegularExpression\n")
+		src.write("#else\n")
+		src.write("#include <QtCore/QRegExp>\n")
+		src.write("#define XML_CODE_GEN_REGEXP QRegExp\n")
+		src.write("#endif\n")
 		if self.config.schemaUrl != "":
 			src.write("#ifdef QT_XMLPATTERNS_LIB\n")
 			src.write("#include <QtCore/QDebug>\n")
 			src.write("#include <QtCore/QBuffer>\n")
-			src.write("#include <QtCore/QRegularExpression>\n")
 			src.write("#include <QtXmlPatterns/QXmlSchema>\n")
 			src.write("#include <QtXmlPatterns/QXmlSchemaValidator>\n")
 			src.write("#include <QtXmlPatterns/QXmlQuery>\n")
@@ -1429,7 +1434,7 @@ class XmlCodeGenerator:
 			src.write("\t{\n")
 			src.write("\t\tQ_UNUSED(identifier)\n")
 			src.write("\t\tauto msg = description;\n")
-			src.write("\t\tmsg.remove(QRegularExpression{QStringLiteral(\"<[^>]*>\")});\n")
+			src.write("\t\tmsg.remove(XML_CODE_GEN_REGEXP{QStringLiteral(\"<[^>]*>\")});\n")
 			src.write("\t\t{}::XmlException exception{{sourceLocation.uri().isLocalFile() ? sourceLocation.uri().toLocalFile() : sourceLocation.uri().toString(), sourceLocation.line(), sourceLocation.column(), msg}};\n".format(self.config.className))
 			src.write("\t\tswitch(type) {\n")
 			src.write("\t\tcase QtDebugMsg:\n")
