@@ -59,6 +59,15 @@
 		</xs:simpleContent>
 	</xs:complexType>
 
+	<!-- Simple type with simple type base -->
+	<xs:complexType name="InheritSimpleType">
+		<xs:simpleContent>
+			<xs:extension base="SimpleType">
+				<xs:attribute name="priority" type="xs:boolean" default="true"/>
+			</xs:extension>
+		</xs:simpleContent>
+	</xs:complexType>
+
 	<!-- Simple type with cpp member name and type -->
 	<xs:complexType name="StringWrapper">
 		<xs:simpleContent>
@@ -100,7 +109,7 @@
 	<xs:group name="Group2">
 		<xs:choice qxg:member="choice1">
 			<xs:element type="SimpleType" name="Type1"/>
-			<xs:element type="AnotherSimpleType" name="Type2" qxg:method="read_test_another" qxg:methodType="int"/>
+			<xs:element type="AnotherSimpleType" name="Type2" qxg:method="read_test_another"/>
 		</xs:choice>
 	</xs:group>
 
@@ -166,7 +175,7 @@
 			</xs:choice>
 			<xs:group ref="Group4" qxg:inherit="true"/>
 			<xs:group ref="Group5" qxg:member="superGroup" qxg:method="read_super"/>
-			<xs:element type="SimpleType" name="FinalType" qxg:method="read_test" qxg:methodType="StringWrapper">
+			<xs:element type="SimpleType" name="FinalType" qxg:method="read_test">
 				<qxg:param>true</qxg:param>
 			</xs:element>
 		</xs:sequence>
@@ -205,7 +214,7 @@
 	<!-- Mixed complex type -->
 	<xs:complexType name="Type6" mixed="true" qxg:type="QUuid">
 		<xs:sequence>
-			<xs:element type="SimpleType" name="Content" maxOccurs="unbounded" minOccurs="5"/>
+			<xs:element type="InheritSimpleType" name="Content" maxOccurs="unbounded" minOccurs="5"/>
 		</xs:sequence>
 		<xs:attribute name="mem1" type="xs:string" use="required"/>
 		<xs:attribute name="mem2" type="xs:integer"/>
@@ -225,7 +234,7 @@
 
 
 	<!-- allowed root elements -->
-	<xs:element name="RootString" type="Type1" qxg:method="read_test" qxg:methodType="StringWrapper"/>
+	<xs:element name="RootString" type="Type1" qxg:method="read_test"/>
 	<xs:element name="Root1" type="Type3"/>
 	<xs:element name="Root2" type="Type4"/>
 	<xs:element name="Root3" type="Type5"/>

@@ -628,19 +628,28 @@ class SimpleTypeDef(TypeDef):
 	contentMember: str = ""
 	contentXmlType: str = ""
 	contentCppType: str = ""
+	hasCppBase: bool = False
 
 	def __repr__(self):
 		return self.name + "[" + self.contentXmlType + "]" + \
 			" {" + self.contentMember + ": " + self.contentCppType + \
 			"} -> " + str(self.members + self.member_groups)
 
+	def inherits(self) -> list:
+		return [self.contentCppType] if self.hasCppBase else [] + super(SimpleTypeDef, self).inherits()
+
 	def write_hdr_content(self, hdr: TextIOBase):
-		hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
+		if not self.hasCppBase:
+			hdr.write("\t\t{} {};\n".format(self.contentCppType, self.contentMember))
 
 	def write_src_content(self, src: TextIOBase, need_newline: bool):
 		if need_newline:
 			src.write("\n")
-		src.write("\treadContent<{}>(reader, data.{});\n".format(self.contentCppType, self.contentMember))
+
+		if self.hasCppBase:
+			src.write("\tread_{}(reader, data);\n".format(self.contentCppType))
+		else:
+			src.write("\treadContent<{}>(reader, data.{});\n".format(self.contentCppType, self.contentMember))
 
 
 class ComplexTypeDef(TypeDef):
@@ -796,6 +805,7 @@ class XmlCodeGenerator:
 		"xs:anyURI": "QUrl",
 		"": ""  # nothing maps to nothing
 	}
+	xs_cpp_base_types: set = set()
 
 	config: QxgConfig
 	methods: list
@@ -949,10 +959,8 @@ class XmlCodeGenerator:
 			content.name = node.attrib["name"]
 			content.member = self.read_qxg(node, "member", content.name[0].lower() + content.name[1:])
 			content.type_key = node.attrib["type"]
-			if self.read_qxg(node, "basicType", "false").lower() == "true":
-				content.is_basic_type = True
-			elif content.type_key in self.xs_type_map:
-				content.is_basic_type = True
+			if content.type_key in self.xs_type_map:
+				content.is_basic_type = content.type_key not in self.xs_cpp_base_types
 				content.type_key = self.xs_type_map[content.type_key]
 		elif nstag == "xs:group":
 			content.is_group = True
@@ -1088,6 +1096,8 @@ class XmlCodeGenerator:
 			base_type = type_def.contentXmlType if isinstance(type_def, SimpleTypeDef) else "xs:string"
 			type_def.contentCppType = self.read_qxg(content_node, "type", base_type, map_type=True)
 			type_def.contentMember = self.read_qxg(content_node, "member", (type_def.name[0].lower() + type_def.name[1:]))
+			if isinstance(type_def, SimpleTypeDef) and type_def.contentCppType in self.xs_cpp_base_types:
+				type_def.hasCppBase = True
 		# extract all attributes
 		type_def.members, type_def.member_groups = self.read_attribs(content_node)
 		# complex: content elements
@@ -1705,7 +1715,11 @@ class XmlCodeGenerator:
 		for child in root:
 			xtag = self.ns_replace(child.tag)
 			if xtag == "xs:complexType":
-				type_defs.append(self.read_type(child))
+				type_def = self.read_type(child)
+				if isinstance(type_def, SimpleTypeDef):
+					self.xs_type_map[type_def.name] = type_def.name
+					self.xs_cpp_base_types.add(type_def.name)
+				type_defs.append(type_def)
 			elif xtag == "xs:element":
 				root_elements.append(self.read_type_content(child))
 			elif xtag == "xs:group":
