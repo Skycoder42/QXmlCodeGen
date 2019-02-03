@@ -12,8 +12,8 @@ debug_and_release {
 xmlcodegen_c.name = qxmlcodegen.py ${QMAKE_FILE_IN}
 xmlcodegen_c.input = XML_SCHEMA_DEFINITIONS
 xmlcodegen_c.variable_out = XMLCODEGEN_HEADERS
-win32: xmlcodegen_c.commands = python $$XMLCODEGEN_ARGS $$PWD/qxmlcodegen.py ${QMAKE_FILE_IN} ${QMAKE_FILE_OUT} $$XMLCODEGEN_DIR/${QMAKE_FILE_BASE}$${first(QMAKE_EXT_CPP)}
-else: xmlcodegen_c.commands = $$PWD/qxmlcodegen.py $$XMLCODEGEN_ARGS ${QMAKE_FILE_IN} ${QMAKE_FILE_OUT} $$XMLCODEGEN_DIR/${QMAKE_FILE_BASE}$${first(QMAKE_EXT_CPP)}
+xmlcodegen_c.commands = $$PWD/qxmlcodegen.py $$XMLCODEGEN_ARGS ${QMAKE_FILE_IN} ${QMAKE_FILE_OUT} $$XMLCODEGEN_DIR/${QMAKE_FILE_BASE}$${first(QMAKE_EXT_CPP)}
+win32: xmlcodegen_c.commands = python $${xmlcodegen_c.commands}
 xmlcodegen_c.output = $$XMLCODEGEN_DIR/${QMAKE_FILE_BASE}$${first(QMAKE_EXT_H)}
 xmlcodegen_c.CONFIG += target_predeps
 xmlcodegen_c.depends += $$PWD/qxmlcodegen.py
