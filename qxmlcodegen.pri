@@ -1,14 +1,13 @@
 DISTFILES += \
 	$$PWD/qxmlcodegen.py
 
-isEmpty(XMLCODEGEN_DIR):XMLCODEGEN_DIR = .
+isEmpty(XMLCODEGEN_DIR): XMLCODEGEN_DIR = .
 debug_and_release {
-	CONFIG(debug, debug|release):SUFFIX = /debug
-	CONFIG(release, debug|release):SUFFIX = /release
+	CONFIG(debug, debug|release): XMLCODEGEN_DIR = $$XMLCODEGEN_DIR/debug
+	CONFIG(release, debug|release): XMLCODEGEN_DIR = $$XMLCODEGEN_DIR/release
 }
-XMLCODEGEN_DIR = $$XMLCODEGEN_DIR$$SUFFIX
 
-skip_xsd_verify: XMLCODEGEN_ARGS = --skip-verify
+!no_skip_xsd_verify:CONFIG(release, debug|release)|skip_xsd_verify: XMLCODEGEN_ARGS = --skip-verify
 
 xmlcodegen_c.name = qxmlcodegen.py ${QMAKE_FILE_IN}
 xmlcodegen_c.input = XML_SCHEMA_DEFINITIONS
