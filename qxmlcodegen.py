@@ -636,7 +636,7 @@ class SimpleTypeDef(TypeDef):
 			"} -> " + str(self.members + self.member_groups)
 
 	def inherits(self) -> list:
-		return [self.contentCppType] if self.hasCppBase else [] + super(SimpleTypeDef, self).inherits()
+		return ([self.contentCppType] if self.hasCppBase else []) + super(SimpleTypeDef, self).inherits()
 
 	def write_hdr_content(self, hdr: TextIOBase):
 		if not self.hasCppBase:
